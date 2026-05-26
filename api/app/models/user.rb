@@ -22,6 +22,10 @@ class User < ApplicationRecord
     admin? || reviewer?
   end
 
+  def invitation_pending?
+    invitation_status == "pending" || clerk_id.to_s.start_with?("pending_")
+  end
+
   def full_name
     [ first_name, last_name ].compact_blank.join(" ").presence || email.to_s.split("@").first
   end

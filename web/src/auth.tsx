@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
 import { ClerkProvider, RedirectToSignIn, SignInButton, SignOutButton, useAuth, useUser } from '@clerk/clerk-react'
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
@@ -85,9 +85,9 @@ export function AdminSignOutButton() {
 export function useAuthHeaders() {
   const auth = useAppAuth()
 
-  return async function authHeaders(): Promise<Record<string, string>> {
+  return useCallback(async function authHeaders(): Promise<Record<string, string>> {
     const token = await auth.getToken()
     return token ? { Authorization: `Bearer ${token}` } : {}
-  }
+  }, [auth])
 }
 

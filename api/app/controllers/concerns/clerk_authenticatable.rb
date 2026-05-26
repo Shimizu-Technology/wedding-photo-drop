@@ -60,25 +60,75 @@ module ClerkAuthenticatable
   end
 
   def find_or_link_user(payload)
-    clerk_id = payload["sub"].to_s
-    email = payload["email"].presence || payload["primary_email_address"].presence || payload.dig("email_addresses", 0, "email_address")
-    first_name = payload["first_name"].presence || payload["given_name"].presence
-    last_name = payload["last_name"].presence || payload["family_name"].presence
-    return nil if clerk_id.blank?
+    identity = identity_from(payload)
+    return nil if identity[:clerk_id].blank?
 
-    user = User.find_by(clerk_id: clerk_id)
-    user ||= User.find_by("LOWER(email) = ?", email.downcase) if email.present?
-    user ||= User.new(role: "admin", invitation_status: "accepted") if User.count.zero?
+    user = User.find_by(clerk_id: identity[:clerk_id])
+    user ||= invited_user_for(identity[:email])
+    user ||= bootstrap_first_admin(identity)
     return nil unless user
 
+    update_authenticated_user!(user, identity)
+  end
+
+  def identity_from(payload)
+    {
+      clerk_id: payload["sub"].to_s,
+      email: normalized_email(payload["email"].presence || payload["primary_email_address"].presence || payload.dig("email_addresses", 0, "email_address")),
+      first_name: payload["first_name"].presence || payload["given_name"].presence,
+      last_name: payload["last_name"].presence || payload["family_name"].presence
+    }
+  end
+
+  def normalized_email(email)
+    email.to_s.strip.downcase.presence
+  end
+
+  def invited_user_for(email)
+    return nil if email.blank?
+
+    user = User.find_by("LOWER(email) = ?", email)
+    return nil unless user&.invitation_pending?
+
+    user
+  end
+
+  def bootstrap_first_admin(identity)
+    User.transaction do
+      lock_users_table_for_bootstrap
+      return nil unless User.count.zero?
+
+      User.create!(
+        clerk_id: identity[:clerk_id],
+        email: identity[:email].presence || "#{identity[:clerk_id]}@placeholder.local",
+        first_name: identity[:first_name],
+        last_name: identity[:last_name],
+        role: "admin",
+        invitation_status: "accepted",
+        last_sign_in_at: Time.current
+      )
+    end
+  rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
+    User.find_by(clerk_id: identity[:clerk_id])
+  end
+
+  def lock_users_table_for_bootstrap
+    return unless ActiveRecord::Base.connection.adapter_name.downcase.include?("postgres")
+
+    User.connection.execute("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE")
+  end
+
+  def update_authenticated_user!(user, identity)
+    should_link_clerk_id = user.invitation_pending?
+
     user.assign_attributes(
-      clerk_id: clerk_id,
-      email: email.presence || user.email || "#{clerk_id}@placeholder.local",
-      first_name: first_name.presence || user.first_name,
-      last_name: last_name.presence || user.last_name,
+      email: identity[:email].presence || user.email || "#{identity[:clerk_id]}@placeholder.local",
+      first_name: identity[:first_name].presence || user.first_name,
+      last_name: identity[:last_name].presence || user.last_name,
       invitation_status: "accepted",
       last_sign_in_at: Time.current
     )
+    user.clerk_id = identity[:clerk_id] if should_link_clerk_id
     user.save!
     user
   end

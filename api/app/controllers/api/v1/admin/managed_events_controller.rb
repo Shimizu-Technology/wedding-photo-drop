@@ -10,8 +10,9 @@ module Api
         before_action :set_event, only: [ :show, :update ]
 
         def index
-          events = Event.order(created_at: :desc)
-          render json: { events: events.map { |event| serialize_admin_event_summary(event) } }
+          events = Event.order(created_at: :desc).to_a
+          counts_by_event = upload_counts_by_event_id(events.map(&:id))
+          render json: { events: events.map { |event| serialize_admin_event_summary(event, counts_by_event[event.id]) } }
         end
 
         def show
@@ -69,8 +70,18 @@ module Api
           }
         end
 
-        def serialize_admin_event_summary(event)
-          serialize_event(event).merge(counts: counts_for(event))
+        def serialize_admin_event_summary(event, counts = nil)
+          serialize_event(event).merge(counts: counts || counts_for(event))
+        end
+
+        def upload_counts_by_event_id(event_ids)
+          base_counts = event_ids.index_with { { pending: 0, approved: 0, rejected: 0, total: 0 } }
+          grouped = MediaUpload.where(event_id: event_ids).group(:event_id, :status).count
+
+          grouped.each_with_object(base_counts) do |((event_id, status), count), memo|
+            memo[event_id][status.to_sym] = count if memo[event_id]&.key?(status.to_sym)
+            memo[event_id][:total] += count if memo[event_id]
+          end
         end
 
         def counts_for(event)

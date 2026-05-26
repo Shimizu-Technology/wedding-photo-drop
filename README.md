@@ -47,7 +47,7 @@ VITE_CLERK_PUBLISHABLE_KEY=
 
 AWS vars in `api/.env` are optional locally and only needed for S3 smoke tests. Development uploads use local disk storage by default.
 
-For production Clerk auth, set `VITE_CLERK_PUBLISHABLE_KEY` on the frontend and `CLERK_ISSUER` or `CLERK_JWKS_URL` on the API. The first authenticated user becomes the initial admin.
+For production Clerk auth, set `VITE_CLERK_PUBLISHABLE_KEY` on the frontend and `CLERK_ISSUER` or `CLERK_JWKS_URL` on the API. `CLERK_AUDIENCE` is optional if you configure an audience in Clerk. The first authenticated user becomes the initial admin.
 
 ## Checks
 

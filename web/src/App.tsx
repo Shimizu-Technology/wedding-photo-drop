@@ -1,5 +1,4 @@
-/* eslint-disable react-hooks/exhaustive-deps */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ArrowRight, Camera, Menu, QrCode, ShieldCheck, UploadCloud, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { AdminLoginButton, AdminSignOutButton, RequireAdmin, useAppAuth, useAuthHeaders } from './auth'
@@ -238,7 +237,7 @@ function AdminDashboard() {
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
 
-  async function refresh() {
+  const refresh = useCallback(async function refresh() {
     try {
       const headers = await authHeaders()
       const [eventsData, userData] = await Promise.all([
@@ -247,7 +246,7 @@ function AdminDashboard() {
       ])
       setEvents(eventsData.events); setUser(userData.user); setError(null)
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not load admin dashboard') }
-  }
+  }, [authHeaders])
 
   useEffect(() => {
     let ignore = false
@@ -271,7 +270,7 @@ function AdminDashboard() {
 
     void loadDashboard()
     return () => { ignore = true }
-  }, [])
+  }, [authHeaders])
 
   async function createEvent(eventObj: React.FormEvent) {
     eventObj.preventDefault(); if (!newName.trim()) return
@@ -297,14 +296,14 @@ function AdminEventPage({ eventId }: { eventId: string }) {
   const uploadUrl = event ? `${window.location.origin}/upload/${event.upload_token}` : ''
   const galleryUrl = event ? `${window.location.origin}/gallery/${event.upload_token}` : ''
 
-  async function refresh(nextStatus = status) {
+  const refresh = useCallback(async function refresh(nextStatus = status) {
     try {
       const headers = await authHeaders()
       const qs = nextStatus === 'all' ? '' : `?status=${nextStatus}`
       const data = await apiJson<AdminPayload>(`/api/v1/admin/events/${eventId}${qs}`, { headers })
       setPayload(data); setError(null)
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not load event') }
-  }
+  }, [authHeaders, eventId, status])
   useEffect(() => {
     let ignore = false
 
@@ -324,7 +323,7 @@ function AdminEventPage({ eventId }: { eventId: string }) {
 
     void loadEvent()
     return () => { ignore = true }
-  }, [eventId])
+  }, [authHeaders, eventId, status])
   async function act(id: number, action: 'approve' | 'reject') { setBusyId(id); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/uploads/${id}/${action}`, { method: 'PATCH', headers }); await refresh() } catch (err) { setError(err instanceof Error ? err.message : 'Action failed') } finally { setBusyId(null) } }
   async function updateEvent(changes: Partial<EventRecord>) { if (!event) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${event.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ event: changes }) }); await refresh() } catch (err) { setError(err instanceof Error ? err.message : 'Could not update event') } finally { setSaving(false) } }
   function changeStatus(next: typeof status) { setStatus(next); refresh(next) }
