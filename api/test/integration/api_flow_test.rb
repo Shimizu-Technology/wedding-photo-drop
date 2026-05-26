@@ -50,6 +50,17 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
     assert_match(/JPEG, PNG, HEIC, WebP, MP4, or MOV/, response.parsed_body["error"])
   end
 
+  test "guest upload uses detected mime type when browser declaration is wrong" do
+    file = Rack::Test::UploadedFile.new(@photo_path, "image/svg+xml")
+
+    assert_difference -> { @event.media_uploads.count }, 1 do
+      post "/api/v1/events/#{@event.upload_token}/uploads", params: { files: [ file ] }
+    end
+
+    assert_response :created
+    assert_equal "image/png", @event.media_uploads.order(:created_at).last.content_type
+  end
+
   test "guest upload rejects closed event" do
     file = Rack::Test::UploadedFile.new(@photo_path, "image/png")
 
@@ -72,6 +83,12 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal @event.admin_token, response.parsed_body.dig("event", "admin_token")
     assert response.parsed_body.dig("counts", "pending") >= 1
+  end
+
+  test "legacy admin token in url route is removed" do
+    get "/api/v1/admin/events/#{@event.admin_token}"
+
+    assert_response :not_found
   end
 
   test "admin can approve and reject scoped uploads" do

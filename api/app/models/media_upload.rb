@@ -62,7 +62,7 @@ class MediaUpload < ApplicationRecord
       errors.add(:file, "must be #{MAX_FILE_SIZE / 1.megabyte}MB or smaller")
     end
 
-    unless ALLOWED_CONTENT_TYPES.include?(blob.content_type)
+    unless ALLOWED_CONTENT_TYPES.include?(content_type)
       errors.add(:file, "must be a supported photo or video type")
     end
   end

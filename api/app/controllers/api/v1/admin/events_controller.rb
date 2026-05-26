@@ -26,7 +26,7 @@ module Api
         private
 
         def admin_token
-          request.headers["X-Admin-Token"].presence || params[:admin_token]
+          request.headers["X-Admin-Token"].presence
         end
 
         def page_limit

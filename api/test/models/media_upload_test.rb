@@ -23,6 +23,12 @@ class MediaUploadTest < ActiveSupport::TestCase
     assert_includes upload.errors[:content_type], "is not included in the list"
   end
 
+  test "validates attached file against detected metadata content type" do
+    upload = build_upload(content_type: "image/png", declared_content_type: "image/svg+xml", filename: "photo.png")
+
+    assert upload.valid?
+  end
+
   test "limits guest metadata lengths" do
     upload = build_upload(guest_name: "A" * 81, guest_message: "B" * 1001)
 
@@ -33,7 +39,7 @@ class MediaUploadTest < ActiveSupport::TestCase
 
   private
 
-  def build_upload(content_type: "image/jpeg", filename: "photo.jpg", guest_name: nil, guest_message: nil)
+  def build_upload(content_type: "image/jpeg", declared_content_type: nil, filename: "photo.jpg", guest_name: nil, guest_message: nil)
     upload = events(:leon).media_uploads.build(
       guest_name: guest_name,
       guest_message: guest_message,
@@ -43,7 +49,7 @@ class MediaUploadTest < ActiveSupport::TestCase
       content_type: content_type,
       file_size: 12
     )
-    upload.file.attach(io: StringIO.new("file bytes"), filename: filename, content_type: content_type)
+    upload.file.attach(io: StringIO.new("file bytes"), filename: filename, content_type: declared_content_type || content_type)
     upload
   end
 end
