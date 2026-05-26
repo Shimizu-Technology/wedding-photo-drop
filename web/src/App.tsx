@@ -48,6 +48,7 @@ const MAX_FILES = 20
 const MAX_FILE_SIZE = 250 * 1024 * 1024
 const MAX_BATCH_SIZE = 500 * 1024 * 1024
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/heic', 'image/heif', 'image/webp', 'video/mp4', 'video/quicktime'])
+const ALLOWED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'heic', 'heif', 'webp', 'mp4', 'mov'])
 
 function pathParts() {
   return window.location.pathname.split('/').filter(Boolean)
@@ -65,9 +66,16 @@ async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   return data as T
 }
 
+function isAllowedFile(file: File) {
+  if (file.type && ALLOWED_TYPES.has(file.type)) return true
+
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  return extension ? ALLOWED_EXTENSIONS.has(extension) : false
+}
+
 function validateFiles(files: File[]) {
   if (files.length > MAX_FILES) return `Please choose ${MAX_FILES} files or fewer at a time.`
-  const unsupported = files.find((file) => !ALLOWED_TYPES.has(file.type))
+  const unsupported = files.find((file) => !isAllowedFile(file))
   if (unsupported) return 'Uploads must be JPEG, PNG, HEIC, WebP, MP4, or MOV files.'
   const oversized = files.find((file) => file.size > MAX_FILE_SIZE)
   if (oversized) return `Each file must be ${formatBytes(MAX_FILE_SIZE)} or smaller.`
