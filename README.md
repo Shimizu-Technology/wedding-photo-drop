@@ -19,6 +19,7 @@ A Rails 8 API + React/Vite app for collecting guest photos/videos at weddings an
 ```bash
 cd api
 bundle install
+cp .env.example .env
 bin/rails db:prepare db:seed
 bin/rails server
 ```
@@ -26,10 +27,24 @@ bin/rails server
 ```bash
 cd web
 npm install
+cp .env.example .env
 npm run dev
 ```
 
-Default local API URL is `http://localhost:3000`; configure `web/.env` from `web/.env.example` if needed.
+Default local API URL is `http://localhost:3000`. The homepage shows seeded event links on localhost when the Rails API is running. Admin access is MVP secret-link based for now; `bin/rails db:seed` prints the admin URL.
+
+Local env vars you actually need:
+
+```text
+# api/.env
+FRONTEND_URL=http://localhost:5173
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:4173
+
+# web/.env
+VITE_API_URL=http://localhost:3000
+```
+
+AWS vars in `api/.env` are optional locally and only needed for S3 smoke tests. Development uploads use local disk storage by default.
 
 ## Checks
 

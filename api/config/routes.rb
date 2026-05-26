@@ -11,6 +11,10 @@ Rails.application.routes.draw do
         patch "uploads/:id/reject", to: "uploads#reject"
         delete "uploads/:id", to: "uploads#destroy"
       end
+
+      namespace :dev do
+        get "events", to: "events#index" if Rails.env.local?
+      end
     end
   end
 

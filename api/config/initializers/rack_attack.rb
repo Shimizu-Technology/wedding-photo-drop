@@ -4,7 +4,8 @@ class Rack::Attack
   Rack::Attack.cache.store = Rails.cache
 
   throttle("uploads/ip", limit: ENV.fetch("UPLOAD_RATE_LIMIT_PER_MINUTE", 12).to_i, period: 1.minute) do |request|
-    request.ip if request.post? && request.path.match?(%r{\A/api/v1/events/[^/]+/uploads\z})
+    remote_ip = request.get_header("action_dispatch.remote_ip")&.to_s.presence || request.ip
+    remote_ip if request.post? && request.path.match?(%r{\A/api/v1/events/[^/]+/uploads\z})
   end
 
   throttle("uploads/event", limit: ENV.fetch("EVENT_UPLOAD_RATE_LIMIT_PER_MINUTE", 60).to_i, period: 1.minute) do |request|

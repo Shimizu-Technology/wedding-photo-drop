@@ -91,6 +91,15 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
+  test "local dev event index exposes convenient local links" do
+    get "/api/v1/dev/events"
+
+    assert_response :success
+    first_event = response.parsed_body.fetch("events").first
+    assert_equal "/upload/#{@event.upload_token}", first_event.fetch("upload_path")
+    assert_equal "/admin/#{@event.admin_token}", first_event.fetch("admin_path")
+  end
+
   test "admin can approve and reject scoped uploads" do
     upload = media_uploads(:pending)
 

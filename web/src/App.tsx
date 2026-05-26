@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ArrowRight, Camera, LockKeyhole, QrCode, ShieldCheck, UploadCloud } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import './App.css'
 
@@ -10,6 +11,17 @@ type EventRecord = {
   admin_token?: string
   public_gallery_enabled: boolean
   uploads_enabled: boolean
+}
+
+type DevEvent = {
+  id: number
+  name: string
+  slug: string
+  upload_path: string
+  gallery_path: string
+  admin_path: string
+  uploads_enabled: boolean
+  public_gallery_enabled: boolean
 }
 
 type MediaUpload = {
@@ -39,6 +51,10 @@ const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/heic', 'image/h
 
 function pathParts() {
   return window.location.pathname.split('/').filter(Boolean)
+}
+
+function isLocalHost() {
+  return ['localhost', '127.0.0.1'].includes(window.location.hostname)
 }
 
 async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -78,14 +94,142 @@ function App() {
 }
 
 function HomePage() {
+  const [token, setToken] = useState('')
+  const [destination, setDestination] = useState<'upload' | 'gallery' | 'admin'>('upload')
+  const [devEvents, setDevEvents] = useState<DevEvent[]>([])
+
+  useEffect(() => {
+    if (!isLocalHost()) return
+
+    apiJson<{ events: DevEvent[] }>('/api/v1/dev/events')
+      .then((data) => setDevEvents(data.events))
+      .catch(() => setDevEvents([]))
+  }, [])
+
+  function openTokenPath(eventObj: React.FormEvent) {
+    eventObj.preventDefault()
+    const cleanToken = token.trim()
+    if (!cleanToken) return
+    window.location.href = `/${destination}/${cleanToken}`
+  }
+
   return (
-    <main className="shell hero-shell">
-      <section className="card hero-card">
-        <p className="eyebrow">Wedding Photo Drop</p>
-        <h1>Private guest photo uploads for weddings and events.</h1>
-        <p className="lede">Guests scan a QR code, upload from their phone, and admins approve what appears in the public gallery.</p>
-        <p className="muted">Use an event link like <code>/upload/YOUR_TOKEN</code> or an admin link like <code>/admin/YOUR_ADMIN_TOKEN</code>.</p>
+    <main className="home-page">
+      <section className="home-hero">
+        <nav className="topbar" aria-label="Primary navigation">
+          <a className="brand-mark" href="/" aria-label="Wedding Photo Drop home">
+            <Camera aria-hidden="true" size={20} />
+            <span>Wedding Photo Drop</span>
+          </a>
+          <div className="topbar-links">
+            <a href="#how-it-works">How it works</a>
+            <a href="#local-links">Local links</a>
+          </div>
+        </nav>
+
+        <div className="hero-grid">
+          <div className="hero-copy">
+            <p className="eyebrow">Private event media collection</p>
+            <h1>Every guest photo, gathered without making guests log in.</h1>
+            <p className="lede">A private QR link lets guests upload from their phones. Admins review every file before anything appears in the public gallery.</p>
+            <div className="hero-actions">
+              {devEvents[0] ? (
+                <a className="button primary" href={devEvents[0].upload_path}>Open seeded upload <ArrowRight aria-hidden="true" size={18} /></a>
+              ) : (
+                <a className="button primary" href="#link-launcher">Open an event link <ArrowRight aria-hidden="true" size={18} /></a>
+              )}
+              <a className="button ghost" href="#how-it-works">See the workflow</a>
+            </div>
+          </div>
+
+          <div className="hero-board" aria-label="Product workflow preview">
+            <div className="board-card board-card-large">
+              <div className="icon-pill"><QrCode aria-hidden="true" size={22} /></div>
+              <span>Guest QR link</span>
+              <strong>/upload/private-token</strong>
+            </div>
+            <div className="board-card">
+              <div className="icon-pill"><UploadCloud aria-hidden="true" size={22} /></div>
+              <span>Pending uploads</span>
+              <strong>Review queue</strong>
+            </div>
+            <div className="board-card dark">
+              <div className="icon-pill"><ShieldCheck aria-hidden="true" size={22} /></div>
+              <span>Admin only</span>
+              <strong>Approve or reject</strong>
+            </div>
+            <div className="board-card gallery-card">
+              <div className="gallery-mosaic" aria-hidden="true"><i /><i /><i /><i /></div>
+              <span>Public gallery</span>
+              <strong>Approved media only</strong>
+            </div>
+          </div>
+        </div>
       </section>
+
+      <section className="home-section split-section" id="how-it-works">
+        <div>
+          <p className="eyebrow">How links work</p>
+          <h2>No admin sign-in yet. For MVP, access is through secret links.</h2>
+          <p className="muted large-copy">Guests get a QR code or private upload URL. Admins use the separate admin URL printed by the seed task. Real account-based admin sign-in can come later when this moves beyond MVP/dogfood.</p>
+        </div>
+        <div className="steps-card">
+          <div><span>01</span><strong>Run seeds</strong><p><code>cd api && bin/rails db:seed</code> prints upload, gallery, and admin paths.</p></div>
+          <div><span>02</span><strong>Share the QR</strong><p>The admin page generates the guest QR for the upload URL.</p></div>
+          <div><span>03</span><strong>Moderate</strong><p>Approvals happen on the secret admin review page.</p></div>
+        </div>
+      </section>
+
+      <section className="home-section link-section" id="link-launcher">
+        <div className="link-card">
+          <div>
+            <p className="eyebrow">Open a private link</p>
+            <h2>Paste a token if you already have one.</h2>
+          </div>
+          <form className="token-form" onSubmit={openTokenPath}>
+            <select value={destination} onChange={(event) => setDestination(event.target.value as 'upload' | 'gallery' | 'admin')} aria-label="Link type">
+              <option value="upload">Guest upload</option>
+              <option value="gallery">Gallery</option>
+              <option value="admin">Admin review</option>
+            </select>
+            <input value={token} onChange={(event) => setToken(event.target.value)} placeholder="Paste token" aria-label="Private event token" />
+            <button className="button primary" type="submit">Open</button>
+          </form>
+        </div>
+      </section>
+
+      {isLocalHost() && (
+        <section className="home-section dev-section" id="local-links">
+          <div className="section-heading">
+            <p className="eyebrow">Local development</p>
+            <h2>Seeded event links</h2>
+            <p className="muted">These only appear on localhost and come from the development API.</p>
+          </div>
+          {devEvents.length === 0 ? (
+            <div className="empty-dev-card">
+              <LockKeyhole aria-hidden="true" size={24} />
+              <strong>No local seed event found yet.</strong>
+              <p>Start the Rails API and run <code>cd api && bin/rails db:seed</code>. The seed task also prints the exact paths in your terminal.</p>
+            </div>
+          ) : (
+            <div className="dev-grid">
+              {devEvents.map((event) => (
+                <article className="dev-event-card" key={event.id}>
+                  <div>
+                    <p className="eyebrow">{event.slug}</p>
+                    <h3>{event.name}</h3>
+                  </div>
+                  <div className="dev-links">
+                    <a className="button primary" href={event.upload_path}>Guest upload</a>
+                    <a className="button ghost" href={event.gallery_path}>Gallery</a>
+                    <a className="button dark-button" href={event.admin_path}>Admin review</a>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </main>
   )
 }
