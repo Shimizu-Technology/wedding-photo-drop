@@ -63,8 +63,14 @@ module Api
         invalid_type = files.find { |file| !allowed_content_type?(normalized_content_type(file)) }
         return "Uploads must be JPEG, PNG, HEIC, WebP, MP4, or MOV files." if invalid_type
 
+        empty_file = files.find { |file| file.size.to_i <= 0 }
+        return "Uploads cannot be empty files." if empty_file
+
         oversized = files.find { |file| file.size.to_i > MediaUpload::MAX_FILE_SIZE }
         return "Each file must be #{MediaUpload::MAX_FILE_SIZE / 1.megabyte}MB or smaller." if oversized
+
+        long_filename = files.find { |file| file.original_filename.to_s.length > 255 }
+        return "Filenames must be 255 characters or fewer." if long_filename
 
         total_size = files.sum { |file| file.size.to_i }
         return "Please upload #{MAX_BATCH_SIZE / 1.megabyte}MB or less at a time." if total_size > MAX_BATCH_SIZE

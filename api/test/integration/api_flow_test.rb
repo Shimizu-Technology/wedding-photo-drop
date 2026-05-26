@@ -8,6 +8,7 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
     @closed_event = events(:closed)
     @photo_path = Rails.root.join("test/fixtures/files/photo.png")
     @text_path = Rails.root.join("test/fixtures/files/not_photo.txt")
+    @empty_path = Rails.root.join("test/fixtures/files/empty.png")
     attach_fixture_files
   end
 
@@ -48,6 +49,29 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     assert_match(/JPEG, PNG, HEIC, WebP, MP4, or MOV/, response.parsed_body["error"])
+  end
+
+  test "guest upload rejects empty files before attachment" do
+    file = Rack::Test::UploadedFile.new(@empty_path, "image/png")
+
+    assert_no_difference -> { @event.media_uploads.count } do
+      post "/api/v1/events/#{@event.upload_token}/uploads", params: { files: [ file ] }
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/empty files/, response.parsed_body["error"])
+  end
+
+  test "guest upload rejects overlong filenames before attachment" do
+    file = Rack::Test::UploadedFile.new(@photo_path, "image/png")
+    file.define_singleton_method(:original_filename) { "#{'a' * 256}.png" }
+
+    assert_no_difference -> { @event.media_uploads.count } do
+      post "/api/v1/events/#{@event.upload_token}/uploads", params: { files: [ file ] }
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/Filenames/, response.parsed_body["error"])
   end
 
   test "guest upload uses detected mime type when browser declaration is wrong" do
