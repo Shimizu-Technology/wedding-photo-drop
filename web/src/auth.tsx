@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import { ClerkProvider, RedirectToSignIn, SignInButton, SignOutButton, useAuth, useUser } from '@clerk/clerk-react'
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
@@ -14,37 +14,46 @@ type AuthContextValue = {
   userEmail: string | null
 }
 
-const AuthContext = createContext<AuthContextValue>({
+const defaultAuthContext: AuthContextValue = {
   enabled: false,
   loaded: true,
   signedIn: false,
   getToken: async () => null,
   userName: null,
   userEmail: null,
-})
+}
+
+const localDevAuthContext: AuthContextValue = {
+  enabled: false,
+  loaded: true,
+  signedIn: true,
+  getToken: async () => null,
+  userName: 'Local Admin',
+  userEmail: null,
+}
+
+const AuthContext = createContext<AuthContextValue>(defaultAuthContext)
 
 function ClerkBridge({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, getToken } = useAuth()
   const { user } = useUser()
   const userEmail = user?.primaryEmailAddress?.emailAddress || null
   const userName = user?.fullName || userEmail
+  const getAuthToken = useCallback(() => getToken(), [getToken])
+  const value = useMemo<AuthContextValue>(() => ({
+    enabled: true,
+    loaded: isLoaded,
+    signedIn: Boolean(isSignedIn),
+    getToken: getAuthToken,
+    userName,
+    userEmail,
+  }), [getAuthToken, isLoaded, isSignedIn, userEmail, userName])
 
-  return (
-    <AuthContext.Provider value={{
-      enabled: true,
-      loaded: isLoaded,
-      signedIn: Boolean(isSignedIn),
-      getToken: async () => getToken(),
-      userName,
-      userEmail,
-    }}>
-      {children}
-    </AuthContext.Provider>
-  )
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 function NoAuthBridge({ children }: { children: ReactNode }) {
-  return <AuthContext.Provider value={{ enabled: false, loaded: true, signedIn: true, getToken: async () => null, userName: 'Local Admin', userEmail: null }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={localDevAuthContext}>{children}</AuthContext.Provider>
 }
 
 export function AuthRoot({ children }: { children: ReactNode }) {
