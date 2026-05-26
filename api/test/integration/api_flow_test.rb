@@ -77,12 +77,36 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
     assert_equal [ "approved" ], statuses
   end
 
+  test "gallery includes limit and offset pagination metadata" do
+    get "/api/v1/events/#{@event.upload_token}/gallery", params: { limit: 1, offset: 0 }
+
+    assert_response :success
+    assert_equal 1, response.parsed_body.dig("pagination", "limit")
+    assert_equal 0, response.parsed_body.dig("pagination", "offset")
+  end
+
   test "admin show supports header token and omits token from api path" do
     get "/api/v1/admin/event", headers: { "X-Admin-Token" => @event.admin_token }
 
     assert_response :success
     assert_equal @event.admin_token, response.parsed_body.dig("event", "admin_token")
     assert response.parsed_body.dig("counts", "pending") >= 1
+  end
+
+  test "admin endpoints require header token" do
+    get "/api/v1/admin/event"
+    assert_response :unauthorized
+
+    patch "/api/v1/admin/uploads/#{media_uploads(:pending).id}/approve"
+    assert_response :unauthorized
+  end
+
+  test "admin show includes limit and offset pagination metadata" do
+    get "/api/v1/admin/event", params: { limit: 2, offset: 1 }, headers: { "X-Admin-Token" => @event.admin_token }
+
+    assert_response :success
+    assert_equal 2, response.parsed_body.dig("pagination", "limit")
+    assert_equal 1, response.parsed_body.dig("pagination", "offset")
   end
 
   test "legacy admin token in url route is removed" do

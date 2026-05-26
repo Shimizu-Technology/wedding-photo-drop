@@ -28,6 +28,8 @@ module Api
         private
 
         def set_event
+          return render json: { error: "Admin token required" }, status: :unauthorized unless admin_token
+
           @event = Event.find_by_admin_token!(admin_token)
         rescue ActiveRecord::RecordNotFound
           render json: { error: "Admin event not found" }, status: :not_found
