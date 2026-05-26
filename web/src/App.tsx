@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, Camera, LockKeyhole, QrCode, ShieldCheck, UploadCloud } from 'lucide-react'
+import { ArrowRight, Camera, LockKeyhole, Menu, QrCode, ShieldCheck, UploadCloud, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import './App.css'
 
@@ -93,6 +93,28 @@ function App() {
   return <HomePage />
 }
 
+type NavLink = { href: string; label: string }
+
+function AppHeader({ links = [] }: { links?: NavLink[] }) {
+  const [open, setOpen] = useState(false)
+  const navLinks = links.length > 0 ? links : [{ href: '/', label: 'Home' }]
+
+  return (
+    <header className="app-header">
+      <a className="brand-mark" href="/" aria-label="Wedding Photo Drop home">
+        <Camera aria-hidden="true" size={20} />
+        <span>Wedding Photo Drop</span>
+      </a>
+      <button className="mobile-menu-button" type="button" aria-label="Toggle navigation" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        {open ? <X aria-hidden="true" size={22} /> : <Menu aria-hidden="true" size={22} />}
+      </button>
+      <nav className={`app-nav ${open ? 'open' : ''}`} aria-label="Primary navigation">
+        {navLinks.map((link) => <a key={`${link.href}-${link.label}`} href={link.href} onClick={() => setOpen(false)}>{link.label}</a>)}
+      </nav>
+    </header>
+  )
+}
+
 function HomePage() {
   const [token, setToken] = useState('')
   const [destination, setDestination] = useState<'upload' | 'gallery' | 'admin'>('upload')
@@ -116,52 +138,43 @@ function HomePage() {
   return (
     <main className="home-page">
       <section className="home-hero">
-        <nav className="topbar" aria-label="Primary navigation">
-          <a className="brand-mark" href="/" aria-label="Wedding Photo Drop home">
-            <Camera aria-hidden="true" size={20} />
-            <span>Wedding Photo Drop</span>
-          </a>
-          <div className="topbar-links">
-            <a href="#how-it-works">How it works</a>
-            <a href="#local-links">Local links</a>
-          </div>
-        </nav>
+        <AppHeader links={[{ href: '#how-it-works', label: 'How it works' }, { href: '#local-links', label: 'Event links' }]} />
 
         <div className="hero-grid">
           <div className="hero-copy">
-            <p className="eyebrow">Private event media collection</p>
-            <h1>Every guest photo, gathered without making guests log in.</h1>
-            <p className="lede">A private QR link lets guests upload from their phones. Admins review every file before anything appears in the public gallery.</p>
+            <p className="eyebrow">Private wedding gallery</p>
+            <h1>Your favorite moments, collected in one beautiful place.</h1>
+            <p className="lede">Guests scan a private QR code, share photos and videos from their phones, and the couple gets a clean gallery of approved memories.</p>
             <div className="hero-actions">
               {devEvents[0] ? (
-                <a className="button primary" href={devEvents[0].upload_path}>Open seeded upload <ArrowRight aria-hidden="true" size={18} /></a>
+                <a className="button primary" href={devEvents[0].upload_path}>Open guest upload <ArrowRight aria-hidden="true" size={18} /></a>
               ) : (
                 <a className="button primary" href="#link-launcher">Open an event link <ArrowRight aria-hidden="true" size={18} /></a>
               )}
-              <a className="button ghost" href="#how-it-works">See the workflow</a>
+              <a className="button ghost" href="#how-it-works">See how it works</a>
             </div>
           </div>
 
           <div className="hero-board" aria-label="Product workflow preview">
             <div className="board-card board-card-large">
               <div className="icon-pill"><QrCode aria-hidden="true" size={22} /></div>
-              <span>Guest QR link</span>
-              <strong>/upload/private-token</strong>
+              <span>Guest QR code</span>
+              <strong>Scan and share</strong>
             </div>
             <div className="board-card">
               <div className="icon-pill"><UploadCloud aria-hidden="true" size={22} /></div>
-              <span>Pending uploads</span>
-              <strong>Review queue</strong>
+              <span>Shared moments</span>
+              <strong>Ready to review</strong>
             </div>
             <div className="board-card dark">
               <div className="icon-pill"><ShieldCheck aria-hidden="true" size={22} /></div>
-              <span>Admin only</span>
-              <strong>Approve or reject</strong>
+              <span>Private review</span>
+              <strong>Choose what appears</strong>
             </div>
             <div className="board-card gallery-card">
               <div className="gallery-mosaic" aria-hidden="true"><i /><i /><i /><i /></div>
-              <span>Public gallery</span>
-              <strong>Approved media only</strong>
+              <span>Wedding gallery</span>
+              <strong>The best moments together</strong>
             </div>
           </div>
         </div>
@@ -169,28 +182,28 @@ function HomePage() {
 
       <section className="home-section split-section" id="how-it-works">
         <div>
-          <p className="eyebrow">How links work</p>
-          <h2>No admin sign-in yet. For MVP, access is through secret links.</h2>
-          <p className="muted large-copy">Guests get a QR code or private upload URL. Admins use the separate admin URL printed by the seed task. Real account-based admin sign-in can come later when this moves beyond MVP/dogfood.</p>
+          <p className="eyebrow">How it works</p>
+          <h2>A simple flow for guests, couples, and trusted reviewers.</h2>
+          <p className="muted large-copy">Share one private upload link with guests, review incoming photos and videos, then publish the moments you want everyone to see.</p>
         </div>
         <div className="steps-card">
-          <div><span>01</span><strong>Run seeds</strong><p><code>cd api && bin/rails db:seed</code> prints upload, gallery, and admin paths.</p></div>
-          <div><span>02</span><strong>Share the QR</strong><p>The admin page generates the guest QR for the upload URL.</p></div>
-          <div><span>03</span><strong>Moderate</strong><p>Approvals happen on the secret admin review page.</p></div>
+          <div><span>01</span><strong>Create the event</strong><p>Each event gets a private guest link, review link, and gallery link.</p></div>
+          <div><span>02</span><strong>Share the QR code</strong><p>Guests scan once and upload right from their phone.</p></div>
+          <div><span>03</span><strong>Curate the gallery</strong><p>Only approved photos and videos appear in the shared gallery.</p></div>
         </div>
       </section>
 
       <section className="home-section link-section" id="link-launcher">
         <div className="link-card">
           <div>
-            <p className="eyebrow">Open a private link</p>
-            <h2>Paste a token if you already have one.</h2>
+            <p className="eyebrow">Open your event</p>
+            <h2>Have a private code? Jump straight in.</h2>
           </div>
           <form className="token-form" onSubmit={openTokenPath}>
             <select value={destination} onChange={(event) => setDestination(event.target.value as 'upload' | 'gallery' | 'admin')} aria-label="Link type">
               <option value="upload">Guest upload</option>
               <option value="gallery">Gallery</option>
-              <option value="admin">Admin review</option>
+              <option value="admin">Review uploads</option>
             </select>
             <input value={token} onChange={(event) => setToken(event.target.value)} placeholder="Paste token" aria-label="Private event token" />
             <button className="button primary" type="submit">Open</button>
@@ -201,15 +214,15 @@ function HomePage() {
       {isLocalHost() && (
         <section className="home-section dev-section" id="local-links">
           <div className="section-heading">
-            <p className="eyebrow">Local development</p>
-            <h2>Seeded event links</h2>
-            <p className="muted">These only appear on localhost and come from the development API.</p>
+            <p className="eyebrow">Event links</p>
+            <h2>Leon & Kami's wedding</h2>
+            <p className="muted">Use these links to try the guest upload, gallery, and review experience.</p>
           </div>
           {devEvents.length === 0 ? (
             <div className="empty-dev-card">
               <LockKeyhole aria-hidden="true" size={24} />
-              <strong>No local seed event found yet.</strong>
-              <p>Start the Rails API and run <code>cd api && bin/rails db:seed</code>. The seed task also prints the exact paths in your terminal.</p>
+              <strong>No event links are available yet.</strong>
+              <p>Once an event is created, its guest upload, gallery, and review links will appear here.</p>
             </div>
           ) : (
             <div className="dev-grid">
@@ -222,7 +235,7 @@ function HomePage() {
                   <div className="dev-links">
                     <a className="button primary" href={event.upload_path}>Guest upload</a>
                     <a className="button ghost" href={event.gallery_path}>Gallery</a>
-                    <a className="button dark-button" href={event.admin_path}>Admin review</a>
+                    <a className="button dark-button" href={event.admin_path}>Review uploads</a>
                   </div>
                 </article>
               ))}
@@ -288,7 +301,9 @@ function UploadPage({ eventToken }: { eventToken: string }) {
   }
 
   return (
-    <main className="shell">
+    <main className="app-page">
+      <AppHeader links={[{ href: '/', label: 'Home' }, { href: `/gallery/${eventToken}`, label: 'Gallery' }]} />
+      <section className="shell">
       <section className="card">
         <p className="eyebrow">Guest upload</p>
         <h1>{event?.name || 'Event photos'}</h1>
@@ -324,6 +339,7 @@ function UploadPage({ eventToken }: { eventToken: string }) {
           <a className="button ghost" href={`/gallery/${eventToken}`}>View approved gallery</a>
         </form>
       </section>
+      </section>
     </main>
   )
 }
@@ -340,13 +356,16 @@ function GalleryPage({ eventToken }: { eventToken: string }) {
   }, [eventToken])
 
   return (
-    <main className="shell wide">
+    <main className="app-page">
+      <AppHeader links={[{ href: '/', label: 'Home' }, { href: `/upload/${eventToken}`, label: 'Upload' }]} />
+      <section className="shell wide">
       <section className="card">
         <p className="eyebrow">Approved gallery</p>
         <h1>{event?.name || 'Gallery'}</h1>
         <p className="lede">Only admin-approved uploads appear here.</p>
         {error && <p className="alert error">{error}</p>}
         {uploads.length === 0 ? <p className="muted">No approved uploads yet.</p> : <MediaGrid uploads={uploads} />}
+      </section>
       </section>
     </main>
   )
@@ -400,7 +419,9 @@ function AdminPage({ adminToken }: { adminToken: string }) {
   }
 
   return (
-    <main className="shell wide">
+    <main className="app-page">
+      <AppHeader links={payload ? [{ href: '/', label: 'Home' }, { href: uploadUrl, label: 'Guest upload' }, { href: galleryUrl, label: 'Gallery' }] : [{ href: '/', label: 'Home' }]} />
+      <section className="shell wide">
       <section className="card">
         <p className="eyebrow">Admin review</p>
         <h1>{payload?.event.name || 'Event admin'}</h1>
@@ -442,6 +463,7 @@ function AdminPage({ adminToken }: { adminToken: string }) {
             )}
           </>
         )}
+      </section>
       </section>
     </main>
   )

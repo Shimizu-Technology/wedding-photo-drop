@@ -41,11 +41,13 @@ module MediaSerialization
   end
 
   def public_storage_url(blob)
+    return nil unless Rails.application.config.active_storage.service.to_s.start_with?("amazon")
+
     public_host = ENV["AWS_PUBLIC_HOST"].presence
     return "#{public_host.delete_suffix('/')}/#{blob.key}" if public_host
 
     bucket = ENV["AWS_S3_BUCKET"].presence
-    return nil unless bucket && Rails.application.config.active_storage.service.to_s.start_with?("amazon")
+    return nil unless bucket
 
     region = ENV.fetch("AWS_REGION", "ap-southeast-2")
     "https://#{bucket}.s3.#{region}.amazonaws.com/#{blob.key}"
