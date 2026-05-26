@@ -54,7 +54,7 @@ class ClerkAuth
       jwks = response.parsed_response
       Rails.cache.write(JWKS_CACHE_KEY, jwks, expires_in: JWKS_CACHE_TTL)
       jwks
-    rescue HTTParty::Error, Timeout::Error => e
+    rescue HTTParty::Error, Timeout::Error, SocketError, Errno::ECONNREFUSED, Errno::EHOSTUNREACH => e
       Rails.logger.error("Clerk JWKS fetch failed: #{e.message}")
       nil
     end

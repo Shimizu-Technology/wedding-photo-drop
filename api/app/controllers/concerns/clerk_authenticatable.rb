@@ -122,7 +122,7 @@ module ClerkAuthenticatable
     should_link_clerk_id = user.invitation_pending?
 
     user.assign_attributes(
-      email: identity[:email].presence || user.email || "#{identity[:clerk_id]}@placeholder.local",
+      email: safe_email_for(user, identity),
       first_name: identity[:first_name].presence || user.first_name,
       last_name: identity[:last_name].presence || user.last_name,
       invitation_status: "accepted",
@@ -131,5 +131,18 @@ module ClerkAuthenticatable
     user.clerk_id = identity[:clerk_id] if should_link_clerk_id
     user.save!
     user
+  rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique => e
+    Rails.logger.warn("Clerk user sync failed for clerk_id=#{identity[:clerk_id]}: #{e.message}")
+    User.find_by(clerk_id: identity[:clerk_id])
+  end
+
+  def safe_email_for(user, identity)
+    email = identity[:email].presence
+    return user.email || "#{identity[:clerk_id]}@placeholder.local" if email.blank?
+
+    conflicting_user = User.where.not(id: user.id).find_by("LOWER(email) = ?", email)
+    return user.email if conflicting_user
+
+    email
   end
 end
