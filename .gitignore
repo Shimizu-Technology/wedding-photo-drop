@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+vendor/bundle/
+
+# Build output
+web/dist/
+
+# Rails runtime
+api/log/*
+api/tmp/*
+api/storage/*
+!api/log/.keep
+!api/tmp/.keep
+!api/tmp/pids/.keep
+!api/storage/.keep
+
+# Rails secrets
+api/config/master.key

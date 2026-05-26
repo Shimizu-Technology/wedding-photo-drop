@@ -1,0 +1,21 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  event: one
+  guest_name: MyString
+  guest_message: MyText
+  status: MyString
+  media_kind: MyString
+  original_filename: MyString
+  content_type: MyString
+  file_size: 1
+
+two:
+  event: two
+  guest_name: MyString
+  guest_message: MyText
+  status: MyString
+  media_kind: MyString
+  original_filename: MyString
+  content_type: MyString
+  file_size: 1
