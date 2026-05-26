@@ -11,7 +11,7 @@ A Rails 8 API + React/Vite app for collecting guest photos/videos at weddings an
 ## Core flows
 
 - Guests upload via `/upload/:upload_token`.
-- Admin reviews via `/admin/:admin_token`.
+- Admins sign in at `/admin` to manage events and review uploads.
 - Public gallery at `/gallery/:upload_token` shows approved uploads only.
 
 ## Local setup
@@ -31,7 +31,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Default local API URL is `http://localhost:3000`. The homepage shows seeded event links on localhost when the Rails API is running. Admin access is MVP secret-link based for now; `bin/rails db:seed` prints the admin URL.
+Default local API URL is `http://localhost:3000`. The homepage shows seeded event links on localhost when the Rails API is running. Admin access uses Clerk when configured; without Clerk keys in development, `/admin` uses a local dev admin fallback.
 
 Local env vars you actually need:
 
@@ -42,9 +42,12 @@ ALLOWED_ORIGINS=http://localhost:5173,http://localhost:4173
 
 # web/.env
 VITE_API_URL=http://localhost:3000
+VITE_CLERK_PUBLISHABLE_KEY=
 ```
 
 AWS vars in `api/.env` are optional locally and only needed for S3 smoke tests. Development uploads use local disk storage by default.
+
+For production Clerk auth, set `VITE_CLERK_PUBLISHABLE_KEY` on the frontend and `CLERK_ISSUER` or `CLERK_JWKS_URL` on the API. The first authenticated user becomes the initial admin.
 
 ## Checks
 

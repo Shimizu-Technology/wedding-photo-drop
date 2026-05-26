@@ -590,3 +590,145 @@ code { background: rgba(59, 36, 24, 0.08); padding: 2px 7px; border-radius: 8px;
   .app-page { padding-top: 14px; }
   .app-page .shell { padding-top: 28px; }
 }
+
+.admin-shell {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding-top: 72px;
+  display: grid;
+  gap: 24px;
+}
+
+.admin-hero,
+.admin-detail-header,
+.admin-create-card,
+.admin-event-card,
+.settings-grid,
+.filter-tabs {
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  background: rgba(255, 250, 241, 0.9);
+  box-shadow: 0 18px 50px rgba(59, 36, 24, 0.08);
+}
+
+.admin-hero,
+.admin-detail-header,
+.admin-create-card,
+.admin-event-card,
+.settings-grid {
+  padding: clamp(22px, 4vw, 36px);
+}
+
+.admin-hero h1,
+.admin-detail-header h1 {
+  max-width: 900px;
+  font-size: clamp(2.6rem, 7vw, 6rem);
+}
+
+.admin-create-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1.2fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.admin-create-card h2,
+.admin-event-card h3 {
+  margin: 0;
+  color: var(--ink);
+  letter-spacing: -0.06em;
+}
+
+.admin-event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px;
+}
+
+.admin-event-card {
+  display: grid;
+  gap: 20px;
+}
+
+.admin-event-card h3 {
+  font-size: 1.7rem;
+}
+
+.admin-detail-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 24px;
+  align-items: center;
+}
+
+.admin-quick-links {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+  font-size: 0.82rem;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto auto auto;
+  gap: 16px;
+  align-items: center;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+}
+
+.toggle-row input {
+  width: 20px;
+  min-height: 20px;
+}
+
+.filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+}
+
+.filter-tabs button {
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 18px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 900;
+  text-transform: capitalize;
+}
+
+.filter-tabs button.active {
+  background: var(--terracotta);
+  color: #fffaf1;
+}
+
+.auth-state {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--cream);
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.small-button {
+  min-height: 38px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 880px) {
+  .admin-create-card,
+  .admin-detail-header,
+  .settings-grid { grid-template-columns: 1fr; }
+  .admin-shell { padding-top: 32px; }
+}

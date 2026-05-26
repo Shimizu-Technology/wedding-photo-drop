@@ -12,5 +12,5 @@ Event.find_each do |event|
   puts "- #{event.name}"
   puts "  Upload: /upload/#{event.upload_token}"
   puts "  Gallery: /gallery/#{event.upload_token}"
-  puts "  Admin: /admin/#{event.admin_token}"
+  puts "  Admin: /admin"
 end
