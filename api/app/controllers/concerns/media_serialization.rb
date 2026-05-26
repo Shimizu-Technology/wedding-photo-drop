@@ -28,6 +28,7 @@ module MediaSerialization
       name: event.name,
       slug: event.slug,
       public_gallery_enabled: event.public_gallery_enabled,
+      uploads_enabled: event.uploads_enabled,
       upload_token: event.upload_token,
       admin_token: event.admin_token
     }
@@ -36,6 +37,17 @@ module MediaSerialization
   def attachment_url(attachment)
     return nil unless attachment.attached?
 
-    Rails.application.routes.url_helpers.rails_blob_url(attachment, host: request.base_url)
+    public_storage_url(attachment.blob) || Rails.application.routes.url_helpers.rails_blob_url(attachment, host: request.base_url)
+  end
+
+  def public_storage_url(blob)
+    public_host = ENV["AWS_PUBLIC_HOST"].presence
+    return "#{public_host.delete_suffix('/')}/#{blob.key}" if public_host
+
+    bucket = ENV["AWS_S3_BUCKET"].presence
+    return nil unless bucket && Rails.application.config.active_storage.service.to_s.start_with?("amazon")
+
+    region = ENV.fetch("AWS_REGION", "ap-southeast-2")
+    "https://#{bucket}.s3.#{region}.amazonaws.com/#{blob.key}"
   end
 end

@@ -35,6 +35,9 @@ gem "image_processing", "~> 1.2"
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
 gem "rack-cors"
 
+# Throttle public upload endpoints to reduce abuse/cost spikes
+gem "rack-attack"
+
 # AWS S3 storage in production (matches Shimizu Rails API conventions)
 gem "aws-sdk-s3", "~> 1.0"
 

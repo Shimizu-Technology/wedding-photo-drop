@@ -9,6 +9,7 @@ type EventRecord = {
   upload_token: string
   admin_token?: string
   public_gallery_enabled: boolean
+  uploads_enabled: boolean
 }
 
 type MediaUpload = {
@@ -31,6 +32,10 @@ type AdminPayload = {
 }
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/$/, '')
+const MAX_FILES = 20
+const MAX_FILE_SIZE = 250 * 1024 * 1024
+const MAX_BATCH_SIZE = 500 * 1024 * 1024
+const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/heic', 'image/heif', 'image/webp', 'video/mp4', 'video/quicktime'])
 
 function pathParts() {
   return window.location.pathname.split('/').filter(Boolean)
@@ -42,6 +47,17 @@ async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   const data = text ? JSON.parse(text) : null
   if (!response.ok) throw new Error(data?.error || `Request failed (${response.status})`)
   return data as T
+}
+
+function validateFiles(files: File[]) {
+  if (files.length > MAX_FILES) return `Please choose ${MAX_FILES} files or fewer at a time.`
+  const unsupported = files.find((file) => !ALLOWED_TYPES.has(file.type))
+  if (unsupported) return 'Uploads must be JPEG, PNG, HEIC, WebP, MP4, or MOV files.'
+  const oversized = files.find((file) => file.size > MAX_FILE_SIZE)
+  if (oversized) return `Each file must be ${formatBytes(MAX_FILE_SIZE)} or smaller.`
+  const totalSize = files.reduce((sum, file) => sum + file.size, 0)
+  if (totalSize > MAX_BATCH_SIZE) return `Please upload ${formatBytes(MAX_BATCH_SIZE)} or less at a time.`
+  return null
 }
 
 function formatBytes(bytes: number) {
@@ -96,6 +112,12 @@ function UploadPage({ eventToken }: { eventToken: string }) {
       return
     }
 
+    const validationError = validateFiles(files)
+    if (validationError) {
+      setError(validationError)
+      return
+    }
+
     setUploading(true)
     setError(null)
     setNotice(null)
@@ -131,18 +153,22 @@ function UploadPage({ eventToken }: { eventToken: string }) {
         <form className="stack" onSubmit={submit}>
           <label>
             Your name <span className="muted">optional</span>
-            <input value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="e.g. Uncle Joe" />
+            <input value={guestName} maxLength={80} onChange={(e) => setGuestName(e.target.value)} placeholder="e.g. Uncle Joe" />
           </label>
 
           <label>
             Message <span className="muted">optional</span>
-            <textarea value={guestMessage} onChange={(e) => setGuestMessage(e.target.value)} placeholder="Say something sweet…" rows={3} />
+            <textarea value={guestMessage} maxLength={1000} onChange={(e) => setGuestMessage(e.target.value)} placeholder="Say something sweet…" rows={3} />
           </label>
 
           <label className="dropzone" htmlFor="files">
             <strong>Choose photos/videos</strong>
             <span>{files.length > 0 ? `${files.length} file(s) selected` : 'Tap to select multiple files from your phone'}</span>
-            <input id="files" type="file" accept="image/*,video/*" multiple onChange={(e) => setFiles(Array.from(e.target.files || []))} />
+            <input id="files" type="file" accept="image/jpeg,image/png,image/heic,image/heif,image/webp,video/mp4,video/quicktime" multiple onChange={(e) => {
+              const nextFiles = Array.from(e.target.files || [])
+              setFiles(nextFiles)
+              setError(validateFiles(nextFiles))
+            }} />
           </label>
 
           {files.length > 0 && <ul className="file-list">{files.map((file) => <li key={`${file.name}-${file.size}`}>{file.name} · {formatBytes(file.size)}</li>)}</ul>}
@@ -150,7 +176,7 @@ function UploadPage({ eventToken }: { eventToken: string }) {
           {error && <p className="alert error">{error}</p>}
           {notice && <p className="alert success">{notice}</p>}
 
-          <button className="button primary" disabled={uploading}>{uploading ? 'Uploading…' : 'Upload memories'}</button>
+          <button className="button primary" disabled={uploading || event?.uploads_enabled === false}>{uploading ? 'Uploading…' : event?.uploads_enabled === false ? 'Uploads closed' : 'Upload memories'}</button>
           <a className="button ghost" href={`/gallery/${eventToken}`}>View approved gallery</a>
         </form>
       </section>
@@ -190,9 +216,9 @@ function AdminPage({ adminToken }: { adminToken: string }) {
   const uploadUrl = useMemo(() => payload ? `${window.location.origin}/upload/${payload.event.upload_token}` : '', [payload])
   const galleryUrl = useMemo(() => payload ? `${window.location.origin}/gallery/${payload.event.upload_token}` : '', [payload])
 
-  async function refresh() {
+  async function refreshAdmin() {
     try {
-      const data = await apiJson<AdminPayload>(`/api/v1/admin/events/${adminToken}`)
+      const data = await apiJson<AdminPayload>('/api/v1/admin/event', { headers: { 'X-Admin-Token': adminToken } })
       setPayload(data)
       setError(null)
     } catch (err) {
@@ -200,13 +226,28 @@ function AdminPage({ adminToken }: { adminToken: string }) {
     }
   }
 
-  useEffect(() => { refresh() }, [adminToken])
+  useEffect(() => {
+    let ignore = false
+
+    apiJson<AdminPayload>('/api/v1/admin/event', { headers: { 'X-Admin-Token': adminToken } })
+      .then((data) => {
+        if (!ignore) {
+          setPayload(data)
+          setError(null)
+        }
+      })
+      .catch((err) => {
+        if (!ignore) setError(err instanceof Error ? err.message : 'Could not load admin page')
+      })
+
+    return () => { ignore = true }
+  }, [adminToken])
 
   async function act(id: number, action: 'approve' | 'reject') {
     setBusyId(id)
     try {
-      await apiJson(`/api/v1/admin/events/${adminToken}/uploads/${id}/${action}`, { method: 'PATCH' })
-      await refresh()
+      await apiJson(`/api/v1/admin/uploads/${id}/${action}`, { method: 'PATCH', headers: { 'X-Admin-Token': adminToken } })
+      await refreshAdmin()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed')
     } finally {
@@ -248,7 +289,7 @@ function AdminPage({ adminToken }: { adminToken: string }) {
                       <div className="actions">
                         <button className="button primary" disabled={busyId === upload.id} onClick={() => act(upload.id, 'approve')}>Approve</button>
                         <button className="button danger" disabled={busyId === upload.id} onClick={() => act(upload.id, 'reject')}>Reject</button>
-                        {upload.file_url && <a className="button ghost" href={upload.file_url} target="_blank">Open</a>}
+                        {upload.file_url && <a className="button ghost" href={upload.file_url} target="_blank" rel="noopener noreferrer">Open</a>}
                       </div>
                     </div>
                   </article>
@@ -269,7 +310,7 @@ function MediaGrid({ uploads }: { uploads: MediaUpload[] }) {
 function MediaPreview({ upload }: { upload: MediaUpload }) {
   if (!upload.file_url) return <div className="placeholder">No preview</div>
   if (upload.media_kind === 'video') return <video src={upload.file_url} controls playsInline />
-  return <img src={upload.file_url} alt={upload.guest_message || upload.original_filename} loading="lazy" />
+  return <img src={upload.file_url} alt={upload.guest_message || upload.original_filename} loading="lazy" referrerPolicy="no-referrer" />
 }
 
 export default App

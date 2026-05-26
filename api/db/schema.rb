@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_26_085150) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_26_210000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -50,6 +50,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_26_085150) do
     t.string "slug", null: false
     t.datetime "updated_at", null: false
     t.string "upload_token", null: false
+    t.boolean "uploads_enabled", default: true, null: false
     t.index ["admin_token"], name: "index_events_on_admin_token", unique: true
     t.index ["slug"], name: "index_events_on_slug", unique: true
     t.index ["upload_token"], name: "index_events_on_upload_token", unique: true

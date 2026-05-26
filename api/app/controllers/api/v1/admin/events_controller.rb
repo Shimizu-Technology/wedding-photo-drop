@@ -7,8 +7,8 @@ module Api
         include MediaSerialization
 
         def show
-          event = Event.find_by_admin_token!(params[:admin_token])
-          uploads = event.media_uploads.with_attached_file.newest_first
+          event = Event.find_by_admin_token!(admin_token)
+          uploads = event.media_uploads.with_attached_file.newest_first.limit(page_limit)
           render json: {
             event: serialize_event(event),
             counts: {
@@ -21,6 +21,16 @@ module Api
           }
         rescue ActiveRecord::RecordNotFound
           render json: { error: "Admin event not found" }, status: :not_found
+        end
+
+        private
+
+        def admin_token
+          request.headers["X-Admin-Token"].presence || params[:admin_token]
+        end
+
+        def page_limit
+          params.fetch(:limit, 100).to_i.clamp(1, 200)
         end
       end
     end

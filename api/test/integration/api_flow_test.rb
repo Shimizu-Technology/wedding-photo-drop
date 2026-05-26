@@ -1,0 +1,98 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+class ApiFlowTest < ActionDispatch::IntegrationTest
+  setup do
+    @event = events(:leon)
+    @closed_event = events(:closed)
+    @photo_path = Rails.root.join("test/fixtures/files/photo.png")
+    @text_path = Rails.root.join("test/fixtures/files/not_photo.txt")
+    attach_fixture_files
+  end
+
+  test "public event lookup hides admin token" do
+    get "/api/v1/events/#{@event.upload_token}"
+
+    assert_response :success
+    body = response.parsed_body
+    assert_equal @event.name, body.dig("event", "name")
+    assert_nil body.dig("event", "admin_token")
+    assert_equal true, body.dig("event", "uploads_enabled")
+  end
+
+  test "guest upload creates pending media" do
+    file = Rack::Test::UploadedFile.new(@photo_path, "image/png")
+
+    assert_difference -> { @event.media_uploads.count }, 1 do
+      post "/api/v1/events/#{@event.upload_token}/uploads", params: {
+        guest_name: "Wedding Guest",
+        guest_message: "Beautiful ceremony",
+        files: [ file ]
+      }
+    end
+
+    assert_response :created
+    upload = @event.media_uploads.order(:created_at).last
+    assert_equal "pending", upload.status
+    assert_equal "image/png", upload.content_type
+    assert upload.file.attached?
+  end
+
+  test "guest upload rejects unsupported files" do
+    file = Rack::Test::UploadedFile.new(@text_path, "text/plain")
+
+    assert_no_difference -> { @event.media_uploads.count } do
+      post "/api/v1/events/#{@event.upload_token}/uploads", params: { files: [ file ] }
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/JPEG, PNG, HEIC, WebP, MP4, or MOV/, response.parsed_body["error"])
+  end
+
+  test "guest upload rejects closed event" do
+    file = Rack::Test::UploadedFile.new(@photo_path, "image/png")
+
+    post "/api/v1/events/#{@closed_event.upload_token}/uploads", params: { files: [ file ] }
+
+    assert_response :forbidden
+  end
+
+  test "gallery returns approved uploads only" do
+    get "/api/v1/events/#{@event.upload_token}/gallery"
+
+    assert_response :success
+    statuses = response.parsed_body.fetch("uploads").map { |upload| upload.fetch("status") }
+    assert_equal [ "approved" ], statuses
+  end
+
+  test "admin show supports header token and omits token from api path" do
+    get "/api/v1/admin/event", headers: { "X-Admin-Token" => @event.admin_token }
+
+    assert_response :success
+    assert_equal @event.admin_token, response.parsed_body.dig("event", "admin_token")
+    assert response.parsed_body.dig("counts", "pending") >= 1
+  end
+
+  test "admin can approve and reject scoped uploads" do
+    upload = media_uploads(:pending)
+
+    patch "/api/v1/admin/uploads/#{upload.id}/approve", headers: { "X-Admin-Token" => @event.admin_token }
+    assert_response :success
+    assert_equal "approved", upload.reload.status
+
+    patch "/api/v1/admin/uploads/#{upload.id}/reject", headers: { "X-Admin-Token" => @event.admin_token }
+    assert_response :success
+    assert_equal "rejected", upload.reload.status
+  end
+
+  private
+
+  def attach_fixture_files
+    media_uploads(:pending, :approved, :rejected).each do |upload|
+      next if upload.file.attached?
+
+      upload.file.attach(io: File.open(@photo_path), filename: upload.original_filename, content_type: upload.content_type)
+    end
+  end
+end

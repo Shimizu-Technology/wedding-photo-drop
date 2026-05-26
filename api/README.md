@@ -1,24 +1,36 @@
-# README
+# Wedding Photo Drop API
 
-This README would normally document whatever steps are necessary to get the
-application up and running.
+Rails 8 API-only backend for event uploads, moderation, and gallery responses.
 
-Things you may want to cover:
+## Setup
 
-* Ruby version
+```bash
+bundle install
+cp .env.example .env
+bin/rails db:prepare db:seed
+bin/rails server
+```
 
-* System dependencies
+Seed output prints guest upload, gallery, and admin paths.
 
-* Configuration
+## Test and quality checks
 
-* Database creation
+```bash
+bin/rails test
+bin/rubocop
+bin/brakeman --no-pager
+```
 
-* Database initialization
+## Upload constraints
 
-* How to run the test suite
+- Max 20 files/request
+- Max 250MB/file
+- Max 500MB/request
+- Allowed types: JPEG, PNG, HEIC/HEIF, WebP, MP4, MOV
+- Upload and event rate limits are enforced with Rack::Attack
 
-* Services (job queues, cache servers, search engines, etc.)
+## Production configuration
 
-* Deployment instructions
+Required env vars are documented in `.env.example` and `../docs/s3-active-storage-notes.md`.
 
-* ...
+Production uses the `amazon_public` Active Storage service with a public-read bucket policy and returns public S3/CDN media URLs in API responses. Do not use this bucket pattern for sensitive files.
