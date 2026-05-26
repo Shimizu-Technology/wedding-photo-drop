@@ -1,15 +1,15 @@
-# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+leon:
+  name: Leon & Kami's Wedding
+  slug: leon-wedding
+  upload_token: upload-token
+  admin_token: admin-token
+  public_gallery_enabled: true
+  uploads_enabled: true
 
-one:
-  name: MyString
-  slug: MyString
-  upload_token: MyString
-  admin_token: MyString
+closed:
+  name: Closed Event
+  slug: closed-event
+  upload_token: closed-upload-token
+  admin_token: closed-admin-token
   public_gallery_enabled: false
-
-two:
-  name: MyString
-  slug: MyString
-  upload_token: MyString
-  admin_token: MyString
-  public_gallery_enabled: false
+  uploads_enabled: false

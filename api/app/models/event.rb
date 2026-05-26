@@ -5,6 +5,7 @@ class Event < ApplicationRecord
 
   validates :name, :slug, :upload_token, :admin_token, presence: true
   validates :slug, :upload_token, :admin_token, uniqueness: true
+  validates :public_gallery_enabled, :uploads_enabled, inclusion: { in: [ true, false ] }
 
   before_validation :ensure_tokens, on: :create
   before_validation :ensure_slug

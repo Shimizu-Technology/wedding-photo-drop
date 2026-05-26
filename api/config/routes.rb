@@ -6,10 +6,14 @@ Rails.application.routes.draw do
       get "events/:event_token/gallery", to: "galleries#show"
 
       namespace :admin do
-        get "events/:admin_token", to: "events#show"
-        patch "events/:admin_token/uploads/:id/approve", to: "uploads#approve"
-        patch "events/:admin_token/uploads/:id/reject", to: "uploads#reject"
-        delete "events/:admin_token/uploads/:id", to: "uploads#destroy"
+        get "event", to: "events#show"
+        patch "uploads/:id/approve", to: "uploads#approve"
+        patch "uploads/:id/reject", to: "uploads#reject"
+        delete "uploads/:id", to: "uploads#destroy"
+      end
+
+      namespace :dev do
+        get "events", to: "events#index" if Rails.env.local?
       end
     end
   end

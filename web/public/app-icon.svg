@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Wedding Photo Drop</title>
+  <desc id="desc">A warm camera mark for Wedding Photo Drop.</desc>
+  <rect width="512" height="512" rx="112" fill="#fff7e8"/>
+  <circle cx="256" cy="256" r="188" fill="#a3471c" opacity="0.10"/>
+  <path d="M154 190h48l21-34h66l21 34h48c28 0 50 22 50 50v108c0 28-22 50-50 50H154c-28 0-50-22-50-50V240c0-28 22-50 50-50Z" fill="#3b2418"/>
+  <path d="M256 346c49 0 89-40 89-89s-40-89-89-89-89 40-89 89 40 89 89 89Z" fill="#fff7e8"/>
+  <path d="M256 315c32 0 58-26 58-58s-26-58-58-58-58 26-58 58 26 58 58 58Z" fill="#a3471c"/>
+  <path d="M256 232c10-18 37-18 47 1 8 15 1 33-13 43l-34 25-34-25c-14-10-21-28-13-43 10-19 37-19 47-1Z" fill="#fff7e8"/>
+  <circle cx="359" cy="226" r="18" fill="#d69c42"/>
+</svg>

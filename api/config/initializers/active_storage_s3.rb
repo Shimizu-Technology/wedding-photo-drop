@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-if Rails.env.production? && Rails.application.config.active_storage.service == :amazon
+if Rails.env.production? && Rails.application.config.active_storage.service.to_s.start_with?("amazon")
   missing = %w[AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION AWS_S3_BUCKET].select { |key| ENV[key].blank? }
 
   if missing.any?

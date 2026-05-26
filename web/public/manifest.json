@@ -1,0 +1,27 @@
+{
+  "name": "Wedding Photo Drop",
+  "short_name": "Photo Drop",
+  "description": "Private wedding and event photo uploads with review and gallery sharing.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5efe6",
+  "theme_color": "#3b2418",
+  "orientation": "portrait-primary",
+  "categories": ["photo", "lifestyle", "events"],
+  "lang": "en-US",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

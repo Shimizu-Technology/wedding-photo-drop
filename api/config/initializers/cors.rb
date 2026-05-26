@@ -3,7 +3,7 @@
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
     frontend_url = ENV["FRONTEND_URL"]
-    origins = ENV.fetch("ALLOWED_ORIGINS", [frontend_url, "http://localhost:5173", "http://localhost:4173"].compact.join(","))
+    origins = ENV.fetch("ALLOWED_ORIGINS", [ frontend_url, "http://localhost:5173", "http://localhost:4173" ].compact.join(","))
                  .split(",")
                  .map(&:strip)
                  .reject(&:blank?)
