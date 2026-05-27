@@ -123,11 +123,14 @@ module ClerkAuthenticatable
   def update_authenticated_user!(user, identity)
     should_link_clerk_id = user.invitation_pending?
 
+    accepted_now = user.invitation_pending? && user.accepted_at.blank?
+
     user.assign_attributes(
       email: safe_email_for(user, identity),
       first_name: identity[:first_name].presence || user.first_name,
       last_name: identity[:last_name].presence || user.last_name,
       invitation_status: "accepted",
+      accepted_at: accepted_now ? Time.current : user.accepted_at,
       last_sign_in_at: Time.current
     )
     user.clerk_id = identity[:clerk_id] if should_link_clerk_id

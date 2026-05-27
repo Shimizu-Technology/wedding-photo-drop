@@ -43,6 +43,7 @@ class ClerkAuthenticatableTest < ActiveSupport::TestCase
     assert_equal invited, resolved
     assert_equal "new_clerk_user", invited.reload.clerk_id
     assert_equal "accepted", invited.invitation_status
+    assert_not_nil invited.accepted_at
     assert_equal "Riley", invited.first_name
   end
 

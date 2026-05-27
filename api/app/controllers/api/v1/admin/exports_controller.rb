@@ -73,10 +73,15 @@ module Api
         end
 
         def zip_filename(upload, index)
-          section = upload.album_section&.slug.presence || "uncategorized"
-          basename = File.basename(upload.original_filename, ".*").parameterize.presence || "upload-#{upload.id}"
+          section = safe_path_component(upload.album_section&.slug.presence || "uncategorized")
+          basename = safe_path_component(File.basename(upload.original_filename, ".*").parameterize.presence || "upload-#{upload.id}")
           extension = File.extname(upload.original_filename).presence || extension_for(upload.content_type)
           "#{section}/#{format('%04d', index + 1)}-#{basename}-#{upload.id}#{extension}"
+        end
+
+        def safe_path_component(value)
+          sanitized = value.to_s.parameterize
+          sanitized.presence || "item"
         end
 
         def extension_for(content_type)
