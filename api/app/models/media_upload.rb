@@ -15,6 +15,7 @@ class MediaUpload < ApplicationRecord
   MAX_FILE_SIZE = 250.megabytes
 
   belongs_to :event
+  belongs_to :album_section, optional: true
   has_one_attached :file
 
   validates :status, presence: true, inclusion: { in: STATUSES }
@@ -31,6 +32,7 @@ class MediaUpload < ApplicationRecord
   scope :newest_first, -> { order(created_at: :desc) }
   scope :approved, -> { where(status: "approved") }
   scope :pending, -> { where(status: "pending") }
+  scope :gallery_order, -> { left_joins(:album_section).order("album_sections.sort_order ASC NULLS LAST", :sort_order, created_at: :desc) }
 
   def approve!
     update!(status: "approved")

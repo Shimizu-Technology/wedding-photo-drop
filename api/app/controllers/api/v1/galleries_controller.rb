@@ -9,9 +9,10 @@ module Api
         event = Event.find_by_public_token!(params[:event_token])
         return render json: { event: serialize_event(event).except(:admin_token), uploads: [] } unless event.public_gallery_enabled?
 
-        uploads = event.media_uploads.approved.with_attached_file.newest_first.offset(page_offset).limit(page_limit)
+        uploads = event.media_uploads.approved.with_attached_file.includes(:album_section).gallery_order.offset(page_offset).limit(page_limit)
         render json: {
           event: serialize_event(event).except(:admin_token),
+          album_sections: event.album_sections.visible.ordered.map { |section| serialize_album_section(section) },
           pagination: {
             limit: page_limit,
             offset: page_offset,
@@ -24,6 +25,17 @@ module Api
       end
 
       private
+
+      def serialize_album_section(section)
+        {
+          id: section.id,
+          name: section.name,
+          slug: section.slug,
+          description: section.description,
+          sort_order: section.sort_order,
+          visible: section.visible?
+        }
+      end
 
       def page_limit
         params.fetch(:limit, 100).to_i.clamp(1, 200)

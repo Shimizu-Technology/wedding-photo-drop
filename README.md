@@ -11,7 +11,7 @@ A Rails 8 API + React/Vite app for collecting guest photos/videos at weddings an
 ## Core flows
 
 - Guests upload via `/upload/:upload_token`.
-- Admins sign in at `/admin` to manage events and review uploads.
+- Admins sign in at `/admin` to manage events, invite reviewers, organize albums, and review uploads.
 - Public gallery at `/gallery/:upload_token` shows approved uploads only.
 
 ## Local setup
@@ -47,7 +47,9 @@ VITE_CLERK_PUBLISHABLE_KEY=
 
 AWS vars in `api/.env` are optional locally and only needed for S3 smoke tests. Development uploads use local disk storage by default.
 
-For production Clerk auth, set `VITE_CLERK_PUBLISHABLE_KEY` on the frontend and `CLERK_ISSUER` or `CLERK_JWKS_URL` on the API. `CLERK_AUDIENCE` is optional if you configure an audience in Clerk. The first authenticated user becomes the initial admin.
+For production Clerk auth, set `VITE_CLERK_PUBLISHABLE_KEY` on the frontend and `CLERK_ISSUER` or `CLERK_JWKS_URL` on the API. `CLERK_AUDIENCE` is optional if you configure an audience in Clerk. Set `CLERK_SECRET_KEY` for admin-created Clerk invitations, and `RESEND_API_KEY`/`RESEND_FROM_EMAIL` for invitation emails. The first authenticated user becomes the initial admin.
+
+Admin users can invite admins/reviewers, resend pending invitations, edit roles, remove users, bulk approve/reject/delete uploads, download approved media as a ZIP, delete individual uploads, and create album sections for gallery organization.
 
 ## Checks
 

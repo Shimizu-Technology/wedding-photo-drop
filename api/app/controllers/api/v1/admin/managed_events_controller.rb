@@ -16,7 +16,7 @@ module Api
         end
 
         def show
-          uploads = filtered_uploads.with_attached_file.newest_first.offset(page_offset).limit(page_limit)
+          uploads = filtered_uploads.with_attached_file.includes(:album_section).newest_first.offset(page_offset).limit(page_limit)
           render json: admin_event_payload(@event, uploads)
         end
 
@@ -31,7 +31,7 @@ module Api
 
         def update
           if @event.update(event_params)
-            uploads = filtered_uploads.with_attached_file.newest_first.offset(page_offset).limit(page_limit)
+            uploads = filtered_uploads.with_attached_file.includes(:album_section).newest_first.offset(page_offset).limit(page_limit)
             render json: admin_event_payload(@event, uploads)
           else
             render json: { error: @event.errors.full_messages.to_sentence, errors: @event.errors.full_messages }, status: :unprocessable_entity
@@ -60,6 +60,7 @@ module Api
         def admin_event_payload(event, uploads)
           {
             event: serialize_event(event),
+            album_sections: event.album_sections.ordered.map { |section| serialize_album_section(section) },
             counts: counts_for(event),
             pagination: {
               limit: page_limit,
@@ -67,6 +68,19 @@ module Api
               next_offset: uploads.length == page_limit ? page_offset + page_limit : nil
             },
             uploads: uploads.map { |upload| serialize_upload(upload) }
+          }
+        end
+
+        def serialize_album_section(section)
+          {
+            id: section.id,
+            event_id: section.event_id,
+            name: section.name,
+            slug: section.slug,
+            description: section.description,
+            sort_order: section.sort_order,
+            visible: section.visible?,
+            uploads_count: section.media_uploads.count
           }
         end
 

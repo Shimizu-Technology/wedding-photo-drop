@@ -18,7 +18,9 @@ module ClerkAuthenticatable
     return render json: { error: "Invalid or expired authorization" }, status: :unauthorized unless payload
 
     @current_user = find_or_link_user(payload)
-    render json: { error: "User is not invited" }, status: :forbidden unless @current_user
+    return render json: { error: "User is not invited" }, status: :forbidden unless @current_user
+
+    render json: { error: "User access is inactive" }, status: :forbidden unless @current_user.active?
   end
 
   def require_staff!
