@@ -6,10 +6,12 @@ Rails.application.routes.draw do
       get "events/:event_token/gallery", to: "galleries#show"
 
       namespace :admin do
-        get "event", to: "events#show"
-        patch "uploads/:id/approve", to: "uploads#approve"
-        patch "uploads/:id/reject", to: "uploads#reject"
-        delete "uploads/:id", to: "uploads#destroy"
+        get "me", to: "me#show"
+        resources :events, controller: "managed_events", only: [ :index, :show, :create, :update ] do
+          patch "uploads/:id/approve", to: "managed_uploads#approve"
+          patch "uploads/:id/reject", to: "managed_uploads#reject"
+          delete "uploads/:id", to: "managed_uploads#destroy"
+        end
       end
 
       namespace :dev do

@@ -109,32 +109,18 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
     assert_equal 0, response.parsed_body.dig("pagination", "offset")
   end
 
-  test "admin show supports header token and omits token from api path" do
+  test "legacy header-token admin routes are removed" do
     get "/api/v1/admin/event", headers: { "X-Admin-Token" => @event.admin_token }
+    assert_response :not_found
 
-    assert_response :success
-    assert_equal @event.admin_token, response.parsed_body.dig("event", "admin_token")
-    assert response.parsed_body.dig("counts", "pending") >= 1
-  end
-
-  test "admin endpoints require header token" do
-    get "/api/v1/admin/event"
-    assert_response :unauthorized
-
-    patch "/api/v1/admin/uploads/#{media_uploads(:pending).id}/approve"
-    assert_response :unauthorized
-  end
-
-  test "admin show includes limit and offset pagination metadata" do
-    get "/api/v1/admin/event", params: { limit: 2, offset: 1 }, headers: { "X-Admin-Token" => @event.admin_token }
-
-    assert_response :success
-    assert_equal 2, response.parsed_body.dig("pagination", "limit")
-    assert_equal 1, response.parsed_body.dig("pagination", "offset")
+    patch "/api/v1/admin/uploads/#{media_uploads(:pending).id}/approve", headers: { "X-Admin-Token" => @event.admin_token }
+    assert_response :not_found
   end
 
   test "legacy admin token in url route is removed" do
-    get "/api/v1/admin/events/#{@event.admin_token}"
+    user = User.create!(clerk_id: "legacy_route_test", email: "legacy-route@example.com", role: "admin")
+
+    get "/api/v1/admin/events/#{@event.admin_token}", headers: { "Authorization" => "Bearer test_token_#{user.id}" }
 
     assert_response :not_found
   end
@@ -145,19 +131,7 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
     assert_response :success
     first_event = response.parsed_body.fetch("events").first
     assert_equal "/upload/#{@event.upload_token}", first_event.fetch("upload_path")
-    assert_equal "/admin/#{@event.admin_token}", first_event.fetch("admin_path")
-  end
-
-  test "admin can approve and reject scoped uploads" do
-    upload = media_uploads(:pending)
-
-    patch "/api/v1/admin/uploads/#{upload.id}/approve", headers: { "X-Admin-Token" => @event.admin_token }
-    assert_response :success
-    assert_equal "approved", upload.reload.status
-
-    patch "/api/v1/admin/uploads/#{upload.id}/reject", headers: { "X-Admin-Token" => @event.admin_token }
-    assert_response :success
-    assert_equal "rejected", upload.reload.status
+    assert_equal "/admin", first_event.fetch("admin_path")
   end
 
   private

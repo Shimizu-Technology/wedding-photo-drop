@@ -16,7 +16,7 @@ module Api
                 slug: event.slug,
                 upload_path: "/upload/#{event.upload_token}",
                 gallery_path: "/gallery/#{event.upload_token}",
-                admin_path: "/admin/#{event.admin_token}",
+                admin_path: "/admin",
                 uploads_enabled: event.uploads_enabled,
                 public_gallery_enabled: event.public_gallery_enabled
               }
