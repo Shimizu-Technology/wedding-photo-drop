@@ -38,6 +38,10 @@ module Api
             return render json: { error: "You cannot change your own role" }, status: :unprocessable_entity
           end
 
+          if accepted_email_change?(attrs)
+            return render json: { error: "Accepted user email addresses cannot be changed here. Invite a new user instead." }, status: :unprocessable_entity
+          end
+
           if last_admin_change?(attrs)
             return render json: { error: "Cannot remove the last admin" }, status: :unprocessable_entity
           end
@@ -59,7 +63,7 @@ module Api
 
         def destroy
           return render json: { error: "You cannot delete yourself" }, status: :unprocessable_entity if @user.id == current_user.id
-          return render json: { error: "Cannot delete the last admin" }, status: :unprocessable_entity if @user.admin? && User.where(role: "admin").count <= 1
+          return render json: { error: "Cannot delete the last admin" }, status: :unprocessable_entity if last_active_admin?(@user)
 
           revoke_pending_invitation(@user)
           @user.destroy!
@@ -105,11 +109,18 @@ module Api
           @user.invitation_pending? && attrs[:email].present? && attrs[:email].to_s.strip.downcase != @user.email
         end
 
+        def accepted_email_change?(attrs)
+          !@user.invitation_pending? && attrs[:email].present? && attrs[:email].to_s.strip.downcase != @user.email
+        end
+
         def last_admin_change?(attrs)
-          return false unless @user.admin?
-          return false unless User.where(role: "admin").count <= 1
+          return false unless last_active_admin?(@user)
 
           attrs[:role].present? && attrs[:role] != "admin" || attrs.key?(:active) && ActiveModel::Type::Boolean.new.cast(attrs[:active]) == false
+        end
+
+        def last_active_admin?(user)
+          user.admin? && user.active? && User.where(role: "admin", active: true).where.not(id: user.id).none?
         end
 
         def create_clerk_invitation(user, ignore_existing: false)

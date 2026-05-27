@@ -46,6 +46,23 @@ class AdminV2Test < ActionDispatch::IntegrationTest
     assert response.parsed_body.key?("invitation_sent")
   end
 
+  test "accepted user email cannot be changed through admin update" do
+    patch "/api/v1/admin/users/#{@reviewer.id}", params: { user: { email: "changed@example.com" } }, headers: @headers
+
+    assert_response :unprocessable_entity
+    assert_equal "reviewer-v2@example.com", @reviewer.reload.email
+  end
+
+  test "cannot deactivate the last active admin" do
+    inactive_admin = User.create!(clerk_id: "inactive_admin_v2", email: "inactive-admin@example.com", role: "admin", active: false)
+
+    patch "/api/v1/admin/users/#{@admin.id}", params: { user: { active: false } }, headers: @headers
+
+    assert_response :unprocessable_entity
+    assert_equal false, inactive_admin.reload.active?
+    assert_equal true, @admin.reload.active?
+  end
+
   test "admin can create album sections and assign uploads" do
     post "/api/v1/admin/events/#{@event.id}/album_sections", params: { album_section: { name: "Reception" } }, headers: @headers
     assert_response :created
