@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { ClerkProvider, SignInButton, SignOutButton, SignUpButton, useAuth, useUser } from '@clerk/clerk-react'
+import { ClerkProvider, SignInButton, SignOutButton, useAuth, useUser } from '@clerk/clerk-react'
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 export const isClerkEnabled = Boolean(CLERK_KEY)
@@ -91,10 +91,8 @@ function AdminAuthPrompt({ returnTo }: { returnTo: string }) {
           <SignInButton mode="modal" forceRedirectUrl={returnTo}>
             <button className="button primary" type="button">Sign in</button>
           </SignInButton>
-          <SignUpButton mode="modal" forceRedirectUrl={returnTo}>
-            <button className="button ghost" type="button">Create account</button>
-          </SignUpButton>
         </div>
+        <p className="muted auth-note">Need access? Ask an admin to send you an invitation first.</p>
         <a className="quiet-link" href="/">Return to homepage</a>
       </section>
     </main>
