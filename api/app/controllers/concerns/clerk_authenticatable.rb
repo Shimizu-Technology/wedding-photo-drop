@@ -69,6 +69,7 @@ module ClerkAuthenticatable
     user ||= invited_user_for(identity[:email])
     user ||= bootstrap_first_admin(identity)
     return nil unless user
+    return user unless user.active?
 
     update_authenticated_user!(user, identity)
   end

@@ -40,6 +40,16 @@ class AdminV2Test < ActionDispatch::IntegrationTest
     assert_equal section_id, @pending_upload.reload.album_section_id
   end
 
+  test "admin cannot assign an upload to another event album section" do
+    other_event = events(:closed)
+    other_section = other_event.album_sections.create!(name: "Other Event")
+
+    patch "/api/v1/admin/events/#{@event.id}/uploads/#{@pending_upload.id}", params: { upload: { album_section_id: other_section.id } }, headers: @headers
+
+    assert_response :unprocessable_entity
+    assert_nil @pending_upload.reload.album_section_id
+  end
+
   test "admin can bulk review and delete scoped uploads" do
     patch "/api/v1/admin/events/#{@event.id}/uploads/bulk_approve", params: { ids: [ @pending_upload.id ] }, headers: @headers
     assert_response :success

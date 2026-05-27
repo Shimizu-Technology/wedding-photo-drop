@@ -26,6 +26,8 @@ module Api
           else
             render json: { error: @upload.errors.full_messages.to_sentence, errors: @upload.errors.full_messages }, status: :unprocessable_entity
           end
+        rescue ActiveRecord::RecordInvalid => e
+          render json: { error: e.record.errors.full_messages.to_sentence, errors: e.record.errors.full_messages }, status: :unprocessable_entity
         end
 
         def bulk_approve
@@ -86,7 +88,18 @@ module Api
         end
 
         def upload_params
-          params.require(:upload).permit(:album_section_id, :sort_order)
+          attrs = params.require(:upload).permit(:sort_order)
+          if params.require(:upload).key?(:album_section_id)
+            section_id = params.dig(:upload, :album_section_id).presence
+            attrs[:album_section_id] = section_id.present? ? scoped_album_section_id(section_id) : nil
+          end
+          attrs
+        end
+
+        def scoped_album_section_id(section_id)
+          @event.album_sections.find(section_id).id
+        rescue ActiveRecord::RecordNotFound
+          raise ActiveRecord::RecordInvalid, @upload.tap { |upload| upload.errors.add(:album_section, "must belong to this event") }
         end
       end
     end

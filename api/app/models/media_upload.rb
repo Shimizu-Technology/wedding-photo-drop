@@ -28,6 +28,7 @@ class MediaUpload < ApplicationRecord
   validates :file_size, numericality: { greater_than: 0, less_than_or_equal_to: MAX_FILE_SIZE }
   validate :file_presence
   validate :attached_file_matches_metadata
+  validate :album_section_belongs_to_event
 
   scope :newest_first, -> { order(created_at: :desc) }
   scope :approved, -> { where(status: "approved") }
@@ -63,5 +64,11 @@ class MediaUpload < ApplicationRecord
     if blob.byte_size > MAX_FILE_SIZE
       errors.add(:file, "must be #{MAX_FILE_SIZE / 1.megabyte}MB or smaller")
     end
+  end
+
+  def album_section_belongs_to_event
+    return if album_section_id.blank? || album_section&.event_id == event_id
+
+    errors.add(:album_section, "must belong to this event")
   end
 end
