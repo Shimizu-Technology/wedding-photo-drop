@@ -16,6 +16,13 @@ module MediaSerialization
       original_filename: upload.original_filename,
       content_type: upload.content_type,
       file_size: upload.file_size,
+      album_section_id: upload.album_section_id,
+      album_section: upload.album_section && {
+        id: upload.album_section.id,
+        name: upload.album_section.name,
+        slug: upload.album_section.slug
+      },
+      sort_order: upload.sort_order,
       file_url: attachment_url(upload.file),
       created_at: upload.created_at,
       updated_at: upload.updated_at

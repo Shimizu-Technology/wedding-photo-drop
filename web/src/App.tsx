@@ -28,6 +28,17 @@ type DevEvent = {
 
 type Counts = { pending: number; approved: number; rejected: number; total: number }
 
+type AlbumSection = {
+  id: number
+  event_id: number
+  name: string
+  slug: string
+  description: string | null
+  sort_order: number
+  visible: boolean
+  uploads_count?: number
+}
+
 type MediaUpload = {
   id: number
   guest_name: string | null
@@ -37,12 +48,16 @@ type MediaUpload = {
   original_filename: string
   content_type: string
   file_size: number
+  album_section_id: number | null
+  album_section?: Pick<AlbumSection, 'id' | 'name' | 'slug'> | null
+  sort_order: number
   file_url: string | null
   created_at: string
 }
 
 type AdminPayload = {
   event: EventRecord
+  album_sections: AlbumSection[]
   counts: Counts
   pagination?: { limit: number; offset: number; next_offset: number | null }
   uploads: MediaUpload[]
@@ -50,7 +65,7 @@ type AdminPayload = {
 
 type AdminEventsPayload = { events: Array<EventRecord & { counts: Counts }> }
 
-type AdminUser = { full_name: string; email: string; role: string }
+type AdminUser = { id: number; full_name: string; email: string; role: string; active: boolean; invitation_pending?: boolean; invitation_status?: string; first_name?: string | null; last_name?: string | null; invited_at?: string | null; last_sign_in_at?: string | null }
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/$/, '')
 const MAX_FILES = 20
@@ -110,6 +125,7 @@ function App() {
   const [mode, token, nestedId] = [parts[0], parts[1], parts[2]]
 
   if (mode === 'admin' && token === 'events' && nestedId) return <AdminEventRoute eventId={nestedId} />
+  if (mode === 'admin' && token === 'users') return <AdminUsersRoute />
   if (mode === 'admin') return <AdminRoute />
   if (mode === 'gallery' && token) return <GalleryPage eventToken={token} />
   if (mode === 'upload' && token) return <UploadPage eventToken={token} />
@@ -226,6 +242,7 @@ function GalleryPage({ eventToken }: { eventToken: string }) {
 }
 
 function AdminRoute() { return <RequireAdmin><AdminDashboard /></RequireAdmin> }
+function AdminUsersRoute() { return <RequireAdmin><AdminUsersPage /></RequireAdmin> }
 function AdminEventRoute({ eventId }: { eventId: string }) { return <RequireAdmin><AdminEventPage eventId={eventId} /></RequireAdmin> }
 
 function AdminDashboard() {
@@ -282,7 +299,84 @@ function AdminDashboard() {
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not create event') } finally { setCreating(false) }
   }
 
-  return <main className="app-page"><AppHeader admin links={[{ href: '/', label: 'Home' }, { href: '/admin', label: 'Events' }]} /><section className="admin-shell"><div className="admin-hero"><p className="eyebrow">Admin dashboard</p><h1>Manage wedding events and review guest uploads.</h1><p className="muted">Signed in as {user?.full_name || auth.userName || 'admin'}.</p></div>{error && <p className="alert error">{error}</p>}<form className="admin-create-card" onSubmit={createEvent}><div><p className="eyebrow">New event</p><h2>Create an upload collection</h2></div><input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Event name" /><button className="button primary" disabled={creating}>{creating ? 'Creating…' : 'Create event'}</button></form><div className="admin-event-grid">{events.map((event) => <article className="admin-event-card" key={event.id}><div><p className="eyebrow">{event.slug}</p><h3>{event.name}</h3><p className="muted">Pending {event.counts.pending} · Approved {event.counts.approved} · Total {event.counts.total}</p></div><div className="dev-links"><a className="button primary" href={`/admin/events/${event.id}`}>Review event</a><a className="button ghost" href={`/upload/${event.upload_token}`}>Guest upload</a><a className="button ghost" href={`/gallery/${event.upload_token}`}>Gallery</a></div></article>)}</div></section></main>
+  return <main className="app-page"><AppHeader admin links={[{ href: '/', label: 'Home' }, { href: '/admin', label: 'Events' }, { href: '/admin/users', label: 'Users' }]} /><section className="admin-shell"><div className="admin-hero"><p className="eyebrow">Admin dashboard</p><h1>Manage wedding events and review guest uploads.</h1><p className="muted">Signed in as {user?.full_name || auth.userName || 'admin'}.</p></div>{error && <p className="alert error">{error}</p>}<form className="admin-create-card" onSubmit={createEvent}><div><p className="eyebrow">New event</p><h2>Create an upload collection</h2></div><input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Event name" /><button className="button primary" disabled={creating}>{creating ? 'Creating…' : 'Create event'}</button></form><div className="admin-event-grid">{events.map((event) => <article className="admin-event-card" key={event.id}><div><p className="eyebrow">{event.slug}</p><h3>{event.name}</h3><p className="muted">Pending {event.counts.pending} · Approved {event.counts.approved} · Total {event.counts.total}</p></div><div className="dev-links"><a className="button primary" href={`/admin/events/${event.id}`}>Review event</a><a className="button ghost" href={`/upload/${event.upload_token}`}>Guest upload</a><a className="button ghost" href={`/gallery/${event.upload_token}`}>Gallery</a></div></article>)}</div></section></main>
+}
+
+function AdminUsersPage() {
+  const authHeaders = useAuthHeaders()
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [currentUser, setCurrentUser] = useState<AdminUser | null>(null)
+  const [form, setForm] = useState({ email: '', first_name: '', last_name: '', role: 'reviewer' })
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editForm, setEditForm] = useState({ first_name: '', last_name: '', role: 'reviewer', active: true })
+  const [busyId, setBusyId] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const loadUsers = useCallback(async function loadUsers() {
+    try {
+      const headers = await authHeaders()
+      const [usersData, meData] = await Promise.all([
+        apiJson<{ users: AdminUser[] }>('/api/v1/admin/users', { headers }),
+        apiJson<{ user: AdminUser }>('/api/v1/admin/me', { headers }),
+      ])
+      setUsers(usersData.users)
+      setCurrentUser(meData.user)
+      setError(null)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not load users') }
+  }, [authHeaders])
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- initial admin users load synchronizes with backend state
+  useEffect(() => { void loadUsers() }, [loadUsers])
+
+  async function inviteUser(eventObj: React.FormEvent) {
+    eventObj.preventDefault(); if (!form.email.trim()) return
+    setSaving(true); setError(null); setNotice(null)
+    try {
+      const headers = await authHeaders()
+      const data = await apiJson<{ invitation_sent: boolean; invitation_error?: string }>('/api/v1/admin/users', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ user: form }) })
+      setNotice(data.invitation_sent ? 'Invitation sent.' : `User created. Invitation email was not sent${data.invitation_error ? `: ${data.invitation_error}` : '.'}`)
+      setForm({ email: '', first_name: '', last_name: '', role: 'reviewer' })
+      await loadUsers()
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not invite user') } finally { setSaving(false) }
+  }
+
+  function startEdit(user: AdminUser) {
+    setEditingId(user.id)
+    setEditForm({ first_name: user.first_name || '', last_name: user.last_name || '', role: user.role, active: user.active })
+  }
+
+  async function saveUser(id: number) {
+    setBusyId(id); setError(null); setNotice(null)
+    try {
+      const headers = await authHeaders()
+      await apiJson(`/api/v1/admin/users/${id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ user: editForm }) })
+      setEditingId(null); setNotice('User updated.'); await loadUsers()
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not update user') } finally { setBusyId(null) }
+  }
+
+  async function resendInvite(id: number) {
+    setBusyId(id); setError(null); setNotice(null)
+    try {
+      const headers = await authHeaders()
+      const data = await apiJson<{ invitation_sent: boolean; invitation_error?: string }>(`/api/v1/admin/users/${id}/resend_invitation`, { method: 'POST', headers })
+      setNotice(data.invitation_sent ? 'Invitation resent.' : `Invitation could not be sent${data.invitation_error ? `: ${data.invitation_error}` : '.'}`)
+      await loadUsers()
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not resend invitation') } finally { setBusyId(null) }
+  }
+
+  async function deleteUser(id: number) {
+    if (!window.confirm('Remove this user?')) return
+    setBusyId(id); setError(null); setNotice(null)
+    try {
+      const headers = await authHeaders()
+      await apiJson(`/api/v1/admin/users/${id}`, { method: 'DELETE', headers })
+      setNotice('User removed.'); await loadUsers()
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not remove user') } finally { setBusyId(null) }
+  }
+
+  return <main className="app-page"><AppHeader admin links={[{ href: '/admin', label: 'Events' }, { href: '/admin/users', label: 'Users' }]} /><section className="admin-shell"><div className="admin-hero"><p className="eyebrow">User management</p><h1>Invite reviewers and manage admin access.</h1><p className="muted">Admins can manage users. Reviewers can review uploads and manage event media.</p></div>{error && <p className="alert error">{error}</p>}{notice && <p className="alert success">{notice}</p>}<form className="admin-create-card" onSubmit={inviteUser}><div><p className="eyebrow">Invite user</p><h2>Add a teammate</h2></div><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email address" type="email" /><select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="reviewer">Reviewer</option><option value="admin">Admin</option></select><button className="button primary" disabled={saving}>{saving ? 'Sending…' : 'Send invite'}</button></form><div className="review-list">{users.map((user) => <article className="review-card" key={user.id}><div className="review-body"><strong>{user.full_name}{currentUser?.id === user.id ? ' (you)' : ''}</strong><p className="muted">{user.email} · {user.role} · {user.invitation_pending ? 'Pending' : user.active ? 'Active' : 'Inactive'}</p>{editingId === user.id && <div className="settings-grid compact-settings"><label>First name<input value={editForm.first_name} onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })} /></label><label>Last name<input value={editForm.last_name} onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })} /></label><label>Role<select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}><option value="reviewer">Reviewer</option><option value="admin">Admin</option></select></label><label className="toggle-row"><input type="checkbox" checked={editForm.active} onChange={(e) => setEditForm({ ...editForm, active: e.target.checked })} /> Active</label></div>}<div className="actions">{editingId === user.id ? <><button className="button primary" disabled={busyId === user.id} onClick={() => saveUser(user.id)}>Save</button><button className="button ghost" onClick={() => setEditingId(null)}>Cancel</button></> : <button className="button ghost" onClick={() => startEdit(user)}>Edit</button>}{user.invitation_pending && <button className="button ghost" disabled={busyId === user.id} onClick={() => resendInvite(user.id)}>Resend invite</button>}{currentUser?.id !== user.id && <button className="button danger" disabled={busyId === user.id} onClick={() => deleteUser(user.id)}>Delete</button>}</div></div></article>)}</div></section></main>
 }
 
 function AdminEventPage({ eventId }: { eventId: string }) {
@@ -292,6 +386,8 @@ function AdminEventPage({ eventId }: { eventId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [newSectionName, setNewSectionName] = useState('')
   const statusRef = useRef(status)
   const event = payload?.event
   const uploadUrl = event ? `${window.location.origin}/upload/${event.upload_token}` : ''
@@ -332,9 +428,14 @@ function AdminEventPage({ eventId }: { eventId: string }) {
   }, [authHeaders, eventId, status])
   async function act(id: number, action: 'approve' | 'reject') { setBusyId(id); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/uploads/${id}/${action}`, { method: 'PATCH', headers }); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Action failed') } finally { setBusyId(null) } }
   async function updateEvent(changes: Partial<EventRecord>) { if (!event) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${event.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ event: changes }) }); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Could not update event') } finally { setSaving(false) } }
+  async function updateUpload(id: number, changes: Partial<MediaUpload>) { setBusyId(id); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/uploads/${id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ upload: changes }) }); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Could not update upload') } finally { setBusyId(null) } }
+  async function bulkAction(action: 'bulk_approve' | 'bulk_reject' | 'bulk_destroy') { if (selectedIds.length === 0) return; if (action === 'bulk_destroy' && !window.confirm(`Delete ${selectedIds.length} selected upload(s)?`)) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/uploads/${action}`, { method: action === 'bulk_destroy' ? 'DELETE' : 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: selectedIds }) }); setSelectedIds([]); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Bulk action failed') } finally { setSaving(false) } }
+  async function deleteUpload(id: number) { if (!window.confirm('Delete this upload?')) return; setBusyId(id); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/uploads/${id}`, { method: 'DELETE', headers }); setSelectedIds((ids) => ids.filter((selectedId) => selectedId !== id)); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Could not delete upload') } finally { setBusyId(null) } }
+  async function createSection(eventObj: React.FormEvent) { eventObj.preventDefault(); if (!newSectionName.trim()) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/album_sections`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ album_section: { name: newSectionName.trim(), sort_order: payload?.album_sections.length || 0 } }) }); setNewSectionName(''); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Could not create section') } finally { setSaving(false) } }
+  function toggleSelected(id: number) { setSelectedIds((ids) => ids.includes(id) ? ids.filter((selectedId) => selectedId !== id) : [...ids, id]) }
   function changeStatus(next: typeof status) { setStatus(next) }
 
-  return <main className="app-page"><AppHeader admin links={[{ href: '/admin', label: 'Events' }, { href: uploadUrl || '#', label: 'Guest upload' }, { href: galleryUrl || '#', label: 'Gallery' }]} /><section className="admin-shell">{error && <p className="alert error">{error}</p>}{payload && event && <><div className="admin-detail-header"><div><p className="eyebrow">Event review</p><h1>{event.name}</h1><p className="muted">Pending {payload.counts.pending} · Approved {payload.counts.approved} · Rejected {payload.counts.rejected}</p></div><div className="admin-quick-links"><QRCodeSVG value={uploadUrl} size={132} /><a href={uploadUrl}>{uploadUrl}</a></div></div><div className="settings-grid"><label>Event name<input value={event.name} onChange={(e) => setPayload({ ...payload, event: { ...event, name: e.target.value } })} onBlur={() => updateEvent({ name: event.name })} /></label><label className="toggle-row"><input type="checkbox" checked={event.uploads_enabled} onChange={(e) => updateEvent({ uploads_enabled: e.target.checked })} /> Guest uploads open</label><label className="toggle-row"><input type="checkbox" checked={event.public_gallery_enabled} onChange={(e) => updateEvent({ public_gallery_enabled: e.target.checked })} /> Gallery visible</label>{saving && <p className="muted">Saving…</p>}</div><div className="filter-tabs">{(['pending', 'approved', 'rejected', 'all'] as const).map((item) => <button className={status === item ? 'active' : ''} key={item} onClick={() => changeStatus(item)}>{item}</button>)}</div>{payload.uploads.length === 0 ? <div className="empty-dev-card"><strong>No uploads in this view.</strong><p>New guest uploads will appear here for review.</p></div> : <div className="review-list">{payload.uploads.map((upload) => <article className={`review-card ${upload.status}`} key={upload.id}><MediaPreview upload={upload} /><div className="review-body"><strong>{upload.guest_name || 'Anonymous guest'}</strong>{upload.guest_message && <p>{upload.guest_message}</p>}<p className="muted">{upload.original_filename} · {formatBytes(upload.file_size)} · {upload.status}</p><div className="actions"><button className="button primary" disabled={busyId === upload.id} onClick={() => act(upload.id, 'approve')}>Approve</button><button className="button danger" disabled={busyId === upload.id} onClick={() => act(upload.id, 'reject')}>Reject</button>{upload.file_url && <a className="button ghost" href={upload.file_url} target="_blank" rel="noopener noreferrer">Open</a>}</div></div></article>)}</div>}</>}</section></main>
+  return <main className="app-page"><AppHeader admin links={[{ href: '/admin', label: 'Events' }, { href: '/admin/users', label: 'Users' }, { href: uploadUrl || '#', label: 'Guest upload' }, { href: galleryUrl || '#', label: 'Gallery' }]} /><section className="admin-shell">{error && <p className="alert error">{error}</p>}{payload && event && <><div className="admin-detail-header"><div><p className="eyebrow">Event review</p><h1>{event.name}</h1><p className="muted">Pending {payload.counts.pending} · Approved {payload.counts.approved} · Rejected {payload.counts.rejected}</p></div><div className="admin-quick-links"><QRCodeSVG value={uploadUrl} size={132} /><a href={uploadUrl}>{uploadUrl}</a></div></div><div className="settings-grid"><label>Event name<input value={event.name} onChange={(e) => setPayload({ ...payload, event: { ...event, name: e.target.value } })} onBlur={() => updateEvent({ name: event.name })} /></label><label className="toggle-row"><input type="checkbox" checked={event.uploads_enabled} onChange={(e) => updateEvent({ uploads_enabled: e.target.checked })} /> Guest uploads open</label><label className="toggle-row"><input type="checkbox" checked={event.public_gallery_enabled} onChange={(e) => updateEvent({ public_gallery_enabled: e.target.checked })} /> Gallery visible</label><a className="button ghost" href={`${API_BASE_URL}/api/v1/admin/events/${eventId}/approved_download`} onClick={async (clickEvent) => { clickEvent.preventDefault(); const headers = await authHeaders(); const response = await fetch(`${API_BASE_URL}/api/v1/admin/events/${eventId}/approved_download`, { headers }); if (!response.ok) { setError('No approved media ready to download'); return } const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `${event.slug}-approved-media.zip`; link.click(); URL.revokeObjectURL(url) }}>Download approved</a>{saving && <p className="muted">Saving…</p>}</div><form className="admin-create-card slim-card" onSubmit={createSection}><div><p className="eyebrow">Album sections</p><h2>Organize the gallery</h2></div><input value={newSectionName} onChange={(e) => setNewSectionName(e.target.value)} placeholder="Section name" /><button className="button primary" disabled={saving}>Add section</button></form>{payload.album_sections.length > 0 && <div className="section-chip-row">{payload.album_sections.map((section) => <span className="section-chip" key={section.id}>{section.name} <small>{section.uploads_count || 0}</small></span>)}</div>}<div className="filter-tabs">{(['pending', 'approved', 'rejected', 'all'] as const).map((item) => <button className={status === item ? 'active' : ''} key={item} onClick={() => changeStatus(item)}>{item}</button>)}</div>{selectedIds.length > 0 && <div className="bulk-toolbar"><strong>{selectedIds.length} selected</strong><button className="button primary" onClick={() => bulkAction('bulk_approve')}>Approve selected</button><button className="button ghost" onClick={() => bulkAction('bulk_reject')}>Reject selected</button><button className="button danger" onClick={() => bulkAction('bulk_destroy')}>Delete selected</button><button className="button ghost" onClick={() => setSelectedIds([])}>Clear</button></div>}{payload.uploads.length === 0 ? <div className="empty-dev-card"><strong>No uploads in this view.</strong><p>New guest uploads will appear here for review.</p></div> : <div className="review-list">{payload.uploads.map((upload) => <article className={`review-card ${upload.status}`} key={upload.id}><label className="select-upload"><input type="checkbox" checked={selectedIds.includes(upload.id)} onChange={() => toggleSelected(upload.id)} /> Select</label><MediaPreview upload={upload} /><div className="review-body"><strong>{upload.guest_name || 'Anonymous guest'}</strong>{upload.guest_message && <p>{upload.guest_message}</p>}<p className="muted">{upload.original_filename} · {formatBytes(upload.file_size)} · {upload.status}{upload.album_section ? ` · ${upload.album_section.name}` : ''}</p><label className="compact-label">Album section<select value={upload.album_section_id || ''} onChange={(e) => updateUpload(upload.id, { album_section_id: e.target.value ? Number(e.target.value) : null })}><option value="">Uncategorized</option>{payload.album_sections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}</select></label><div className="actions"><button className="button primary" disabled={busyId === upload.id} onClick={() => act(upload.id, 'approve')}>Approve</button><button className="button danger" disabled={busyId === upload.id} onClick={() => act(upload.id, 'reject')}>Reject</button><button className="button danger" disabled={busyId === upload.id} onClick={() => deleteUpload(upload.id)}>Delete</button>{upload.file_url && <a className="button ghost" href={upload.file_url} target="_blank" rel="noopener noreferrer">Open</a>}</div></div></article>)}</div>}</>}</section></main>
 }
 
 function MediaGrid({ uploads }: { uploads: MediaUpload[] }) { return <div className="media-grid">{uploads.map((upload) => <MediaPreview key={upload.id} upload={upload} />)}</div> }

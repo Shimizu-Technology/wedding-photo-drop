@@ -43,7 +43,28 @@ class ClerkAuthenticatableTest < ActiveSupport::TestCase
     assert_equal invited, resolved
     assert_equal "new_clerk_user", invited.reload.clerk_id
     assert_equal "accepted", invited.invitation_status
+    assert_not_nil invited.accepted_at
     assert_equal "Riley", invited.first_name
+  end
+
+  test "does not link or accept an inactive pending user" do
+    invited = User.create!(
+      clerk_id: "pending_inactive",
+      email: "inactive-reviewer@example.com",
+      role: "reviewer",
+      invitation_status: "pending",
+      active: false
+    )
+
+    resolved = Resolver.new.find_or_link_user({
+      "sub" => "inactive_clerk_user",
+      "email" => "inactive-reviewer@example.com"
+    })
+
+    assert_equal invited, resolved
+    assert_equal "pending_inactive", invited.reload.clerk_id
+    assert_equal "pending", invited.invitation_status
+    assert_nil invited.accepted_at
   end
 
   test "does not raise when a returning Clerk user's token email conflicts with another user" do

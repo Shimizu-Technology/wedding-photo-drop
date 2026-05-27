@@ -20,6 +20,7 @@ module Api
             last_name: user.last_name,
             full_name: user.full_name,
             role: user.role,
+            active: user.active?,
             is_admin: user.admin?,
             is_staff: user.staff?
           }

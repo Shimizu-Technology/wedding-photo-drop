@@ -18,7 +18,9 @@ module ClerkAuthenticatable
     return render json: { error: "Invalid or expired authorization" }, status: :unauthorized unless payload
 
     @current_user = find_or_link_user(payload)
-    render json: { error: "User is not invited" }, status: :forbidden unless @current_user
+    return render json: { error: "User is not invited" }, status: :forbidden unless @current_user
+
+    render json: { error: "User access is inactive" }, status: :forbidden unless @current_user.active?
   end
 
   def require_staff!
@@ -67,6 +69,7 @@ module ClerkAuthenticatable
     user ||= invited_user_for(identity[:email])
     user ||= bootstrap_first_admin(identity)
     return nil unless user
+    return user unless user.active?
 
     update_authenticated_user!(user, identity)
   end
@@ -121,11 +124,14 @@ module ClerkAuthenticatable
   def update_authenticated_user!(user, identity)
     should_link_clerk_id = user.invitation_pending?
 
+    accepted_now = user.invitation_pending? && user.accepted_at.blank?
+
     user.assign_attributes(
       email: safe_email_for(user, identity),
       first_name: identity[:first_name].presence || user.first_name,
       last_name: identity[:last_name].presence || user.last_name,
       invitation_status: "accepted",
+      accepted_at: accepted_now ? Time.current : user.accepted_at,
       last_sign_in_at: Time.current
     )
     user.clerk_id = identity[:clerk_id] if should_link_clerk_id
