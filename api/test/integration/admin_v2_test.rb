@@ -50,4 +50,11 @@ class AdminV2Test < ActionDispatch::IntegrationTest
     end
     assert_response :success
   end
+
+  test "bulk destroy returns validation error when no uploads are selected" do
+    delete "/api/v1/admin/events/#{@event.id}/uploads/bulk_destroy", params: { ids: [] }, headers: @headers
+
+    assert_response :unprocessable_entity
+    assert_equal "No uploads selected", response.parsed_body.fetch("error")
+  end
 end

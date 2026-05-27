@@ -44,6 +44,8 @@ module Api
             upload.destroy!
           end
           render json: { deleted: count }
+        rescue ActiveRecord::RecordNotFound
+          render json: { error: "No uploads selected" }, status: :unprocessable_entity
         end
 
         def destroy
