@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "fileutils"
 require "zip"
 
 module Api
@@ -13,20 +14,12 @@ module Api
           uploads = @event.media_uploads.approved.with_attached_file.includes(:album_section).gallery_order
           return render json: { error: "No approved uploads to download" }, status: :not_found if uploads.empty?
 
-          zip_buffer = Zip::OutputStream.write_buffer do |zip|
-            uploads.each_with_index do |upload, index|
-              next unless upload.file.attached?
+          cleanup_old_exports
+          zip_path = build_zip_file(uploads)
 
-              zip.put_next_entry(zip_filename(upload, index))
-              zip.write upload.file.download
-            end
-          end
-          zip_buffer.rewind
-
-          send_data zip_buffer.read,
-            filename: "#{@event.slug}-approved-media.zip",
-            type: "application/zip",
-            disposition: "attachment"
+          response.headers["Content-Type"] = "application/zip"
+          response.headers["Content-Disposition"] = "attachment; filename=\"approved-media.zip\""
+          self.response_body = zip_file_stream(zip_path)
         end
 
         private
@@ -35,6 +28,48 @@ module Api
           @event = Event.find(params[:event_id])
         rescue ActiveRecord::RecordNotFound
           render json: { error: "Event not found" }, status: :not_found
+        end
+
+        def zip_file_stream(path)
+          Enumerator.new do |stream|
+            File.open(path, "rb") do |file|
+              stream << file.read(64.kilobytes) until file.eof?
+            end
+          ensure
+            File.delete(path) if File.exist?(path)
+          end
+        end
+
+        def build_zip_file(uploads)
+          FileUtils.mkdir_p(export_dir)
+          zip_path = export_dir.join("approved-media-#{SecureRandom.hex(8)}.zip")
+
+          Zip::File.open(zip_path, create: true) do |zip|
+            uploads.each_with_index do |upload, index|
+              next unless upload.file.attached?
+
+              zip.get_output_stream(zip_filename(upload, index)) do |zip_entry|
+                upload.file.blob.open do |source|
+                  IO.copy_stream(source, zip_entry)
+                end
+              end
+            end
+          end
+
+          zip_path
+        end
+
+        def cleanup_old_exports
+          FileUtils.mkdir_p(export_dir)
+          Dir.glob(export_dir.join("*.zip")).each do |path|
+            File.delete(path) if File.mtime(path) < 2.hours.ago
+          rescue Errno::ENOENT
+            next
+          end
+        end
+
+        def export_dir
+          Rails.root.join("tmp/exports")
         end
 
         def zip_filename(upload, index)
