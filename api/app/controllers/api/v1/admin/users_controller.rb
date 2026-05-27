@@ -42,8 +42,16 @@ module Api
             return render json: { error: "Cannot remove the last admin" }, status: :unprocessable_entity
           end
 
+          pending_email_changed = pending_email_change?(attrs)
+
           if @user.update(attrs)
-            render json: { user: user_json(@user) }
+            if pending_email_changed
+              revoke_pending_invitation(@user)
+              invite_result = create_clerk_invitation(@user, ignore_existing: true)
+              render json: invitation_response(@user.reload, invite_result)
+            else
+              render json: { user: user_json(@user) }
+            end
           else
             render json: { error: @user.errors.full_messages.to_sentence, errors: @user.errors.full_messages }, status: :unprocessable_entity
           end
@@ -91,6 +99,10 @@ module Api
 
         def safe_role(role)
           User::ROLES.include?(role.to_s) ? role.to_s : "reviewer"
+        end
+
+        def pending_email_change?(attrs)
+          @user.invitation_pending? && attrs[:email].present? && attrs[:email].to_s.strip.downcase != @user.email
         end
 
         def last_admin_change?(attrs)

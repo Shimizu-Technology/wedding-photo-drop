@@ -30,6 +30,22 @@ class AdminV2Test < ActionDispatch::IntegrationTest
     assert_response :forbidden
   end
 
+  test "updating a pending user email reissues invitation feedback" do
+    user = User.create!(
+      clerk_id: "pending_email_update",
+      email: "old-pending@example.com",
+      role: "reviewer",
+      invitation_status: "pending",
+      clerk_invitation_id: "inv_old"
+    )
+
+    patch "/api/v1/admin/users/#{user.id}", params: { user: { email: "new-pending@example.com" } }, headers: @headers
+
+    assert_response :success
+    assert_equal "new-pending@example.com", user.reload.email
+    assert response.parsed_body.key?("invitation_sent")
+  end
+
   test "admin can create album sections and assign uploads" do
     post "/api/v1/admin/events/#{@event.id}/album_sections", params: { album_section: { name: "Reception" } }, headers: @headers
     assert_response :created
