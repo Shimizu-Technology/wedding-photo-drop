@@ -4,9 +4,11 @@ require "test_helper"
 
 class AdminV2Test < ActionDispatch::IntegrationTest
   setup do
-    @admin = User.create!(clerk_id: "admin_v2", email: "admin-v2@example.com", role: "admin")
+    @admin = User.create!(clerk_id: "admin_v2", email: "admin-v2@example.com", role: "admin", super_admin: true)
     @reviewer = User.create!(clerk_id: "reviewer_v2", email: "reviewer-v2@example.com", role: "reviewer")
     @event = events(:leon)
+    @event.event_memberships.create!(user: @admin, role: "admin")
+    @event.event_memberships.create!(user: @reviewer, role: "reviewer")
     @headers = { "Authorization" => "Bearer test_token_#{@admin.id}" }
     @pending_upload = media_uploads(:pending)
     @pending_upload.file.attach(io: File.open(Rails.root.join("test/fixtures/files/photo.jpg")), filename: @pending_upload.original_filename, content_type: @pending_upload.content_type) unless @pending_upload.file.attached?

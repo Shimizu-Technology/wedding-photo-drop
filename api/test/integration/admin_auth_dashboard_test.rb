@@ -4,8 +4,9 @@ require "test_helper"
 
 class AdminAuthDashboardTest < ActionDispatch::IntegrationTest
   setup do
-    @user = User.create!(clerk_id: "test_clerk_admin", email: "admin@example.com", role: "admin")
+    @user = User.create!(clerk_id: "test_clerk_admin", email: "admin@example.com", role: "admin", super_admin: true)
     @event = events(:leon)
+    @event.event_memberships.create!(user: @user, role: "admin")
     @headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
     @photo_path = Rails.root.join("test/fixtures/files/photo.png")
     media_uploads(:pending).file.attach(io: File.open(@photo_path), filename: "pending.jpg", content_type: "image/jpeg") unless media_uploads(:pending).file.attached?

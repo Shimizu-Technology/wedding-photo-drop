@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_27_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_27_141000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -56,6 +56,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_27_120000) do
     t.index ["event_id"], name: "index_album_sections_on_event_id"
   end
 
+  create_table "event_memberships", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.datetime "created_at", null: false
+    t.bigint "event_id", null: false
+    t.datetime "invited_at"
+    t.bigint "invited_by_id"
+    t.string "role", default: "admin", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["event_id", "user_id"], name: "index_event_memberships_on_event_id_and_user_id", unique: true
+    t.index ["event_id"], name: "index_event_memberships_on_event_id"
+    t.index ["invited_by_id"], name: "index_event_memberships_on_invited_by_id"
+    t.index ["user_id", "active"], name: "index_event_memberships_on_user_id_and_active"
+    t.index ["user_id"], name: "index_event_memberships_on_user_id"
+  end
+
   create_table "events", force: :cascade do |t|
     t.string "admin_token", null: false
     t.datetime "created_at", null: false
@@ -80,6 +96,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_27_120000) do
     t.string "guest_name"
     t.string "media_kind", null: false
     t.string "original_filename", null: false
+    t.datetime "processed_at"
+    t.text "processing_error"
     t.integer "sort_order", default: 0, null: false
     t.string "status", default: "pending", null: false
     t.datetime "updated_at", null: false
@@ -103,15 +121,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_27_120000) do
     t.string "last_name"
     t.datetime "last_sign_in_at"
     t.string "role", default: "admin", null: false
+    t.boolean "super_admin", default: false, null: false
     t.datetime "updated_at", null: false
     t.index "lower((email)::text)", name: "index_users_on_lower_email", unique: true
     t.index ["clerk_id"], name: "index_users_on_clerk_id", unique: true
     t.index ["invited_by_id"], name: "index_users_on_invited_by_id"
+    t.index ["super_admin"], name: "index_users_on_super_admin"
   end
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "album_sections", "events"
+  add_foreign_key "event_memberships", "events"
+  add_foreign_key "event_memberships", "users"
+  add_foreign_key "event_memberships", "users", column: "invited_by_id"
   add_foreign_key "media_uploads", "album_sections"
   add_foreign_key "media_uploads", "events"
   add_foreign_key "users", "users", column: "invited_by_id"

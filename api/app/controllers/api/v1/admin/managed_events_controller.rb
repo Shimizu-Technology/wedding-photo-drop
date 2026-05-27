@@ -6,16 +6,20 @@ module Api
       class ManagedEventsController < ApplicationController
         include MediaSerialization
 
-        before_action :require_staff!
+        before_action :require_staff!, only: [ :index ]
+        before_action :require_super_admin!, only: [ :create ]
         before_action :set_event, only: [ :show, :update ]
 
         def index
-          events = Event.order(created_at: :desc).to_a
+          events = visible_events.order(created_at: :desc).to_a
           counts_by_event = upload_counts_by_event_id(events.map(&:id))
           render json: { events: events.map { |event| serialize_admin_event_summary(event, counts_by_event[event.id]) } }
         end
 
         def show
+          require_event_staff!(@event)
+          return if performed?
+
           uploads = filtered_uploads.with_attached_file.includes(:album_section).newest_first.offset(page_offset).limit(page_limit)
           render json: admin_event_payload(@event, uploads)
         end
@@ -23,6 +27,7 @@ module Api
         def create
           event = Event.new(event_params)
           if event.save
+            event.event_memberships.create!(user: current_user, role: "admin", active: true, invited_by: current_user, invited_at: Time.current)
             render json: { event: serialize_admin_event_summary(event) }, status: :created
           else
             render json: { error: event.errors.full_messages.to_sentence, errors: event.errors.full_messages }, status: :unprocessable_entity
@@ -30,6 +35,9 @@ module Api
         end
 
         def update
+          require_event_admin!(@event)
+          return if performed?
+
           if @event.update(event_params)
             uploads = filtered_uploads.with_attached_file.includes(:album_section).newest_first.offset(page_offset).limit(page_limit)
             render json: admin_event_payload(@event, uploads)
@@ -46,13 +54,23 @@ module Api
           render json: { error: "Event not found" }, status: :not_found
         end
 
+        def visible_events
+          return Event.all if current_user.super_admin?
+
+          Event.joins(:event_memberships).where(event_memberships: { user_id: current_user.id, active: true }).distinct
+        end
+
         def event_params
           params.require(:event).permit(:name, :slug, :uploads_enabled, :public_gallery_enabled)
         end
 
         def filtered_uploads
           uploads = @event.media_uploads
-          return uploads.where(status: params[:status]) if MediaUpload::STATUSES.include?(params[:status])
+          uploads = uploads.where(status: params[:status]) if MediaUpload::STATUSES.include?(params[:status])
+          if params.key?(:album_section_id)
+            section_id = params[:album_section_id].presence
+            uploads = section_id.present? ? uploads.where(album_section_id: section_id) : uploads.where(album_section_id: nil)
+          end
 
           uploads
         end

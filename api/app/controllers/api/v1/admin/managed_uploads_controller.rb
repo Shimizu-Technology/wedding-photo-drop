@@ -6,8 +6,8 @@ module Api
       class ManagedUploadsController < ApplicationController
         include MediaSerialization
 
-        before_action :require_staff!
         before_action :set_event
+        before_action :require_current_event_staff!
         before_action :set_upload, only: [ :approve, :reject, :update, :destroy ]
 
         def approve
@@ -62,6 +62,10 @@ module Api
           @event = Event.find(params[:event_id])
         rescue ActiveRecord::RecordNotFound
           render json: { error: "Event not found" }, status: :not_found
+        end
+
+        def require_current_event_staff!
+          require_event_staff!(@event) if @event
         end
 
         def set_upload

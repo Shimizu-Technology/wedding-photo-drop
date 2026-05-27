@@ -4,8 +4,8 @@ module Api
   module V1
     module Admin
       class AlbumSectionsController < ApplicationController
-        before_action :require_staff!
         before_action :set_event
+        before_action :require_current_event_admin!
         before_action :set_section, only: [ :update, :destroy ]
 
         def index
@@ -47,6 +47,10 @@ module Api
           @section = @event.album_sections.find(params[:id])
         rescue ActiveRecord::RecordNotFound
           render json: { error: "Album section not found" }, status: :not_found
+        end
+
+        def require_current_event_admin!
+          require_event_admin!(@event) if @event
         end
 
         def section_params
