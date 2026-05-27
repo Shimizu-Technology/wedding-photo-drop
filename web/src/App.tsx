@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowRight, Camera, Menu, QrCode, ShieldCheck, UploadCloud, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { AdminLoginButton, AdminSignOutButton, RequireAdmin, useAppAuth, useAuthHeaders } from './auth'
@@ -292,18 +292,24 @@ function AdminEventPage({ eventId }: { eventId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
+  const statusRef = useRef(status)
   const event = payload?.event
   const uploadUrl = event ? `${window.location.origin}/upload/${event.upload_token}` : ''
   const galleryUrl = event ? `${window.location.origin}/gallery/${event.upload_token}` : ''
 
-  const refresh = useCallback(async function refresh(nextStatus = status) {
+  const refresh = useCallback(async function refresh(nextStatus: typeof status) {
     try {
       const headers = await authHeaders()
       const qs = nextStatus === 'all' ? '' : `?status=${nextStatus}`
       const data = await apiJson<AdminPayload>(`/api/v1/admin/events/${eventId}${qs}`, { headers })
       setPayload(data); setError(null)
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not load event') }
-  }, [authHeaders, eventId, status])
+  }, [authHeaders, eventId])
+
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
   useEffect(() => {
     let ignore = false
 
@@ -324,8 +330,8 @@ function AdminEventPage({ eventId }: { eventId: string }) {
     void loadEvent()
     return () => { ignore = true }
   }, [authHeaders, eventId, status])
-  async function act(id: number, action: 'approve' | 'reject') { setBusyId(id); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/uploads/${id}/${action}`, { method: 'PATCH', headers }); await refresh() } catch (err) { setError(err instanceof Error ? err.message : 'Action failed') } finally { setBusyId(null) } }
-  async function updateEvent(changes: Partial<EventRecord>) { if (!event) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${event.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ event: changes }) }); await refresh() } catch (err) { setError(err instanceof Error ? err.message : 'Could not update event') } finally { setSaving(false) } }
+  async function act(id: number, action: 'approve' | 'reject') { setBusyId(id); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/uploads/${id}/${action}`, { method: 'PATCH', headers }); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Action failed') } finally { setBusyId(null) } }
+  async function updateEvent(changes: Partial<EventRecord>) { if (!event) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${event.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ event: changes }) }); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Could not update event') } finally { setSaving(false) } }
   function changeStatus(next: typeof status) { setStatus(next) }
 
   return <main className="app-page"><AppHeader admin links={[{ href: '/admin', label: 'Events' }, { href: uploadUrl || '#', label: 'Guest upload' }, { href: galleryUrl || '#', label: 'Gallery' }]} /><section className="admin-shell">{error && <p className="alert error">{error}</p>}{payload && event && <><div className="admin-detail-header"><div><p className="eyebrow">Event review</p><h1>{event.name}</h1><p className="muted">Pending {payload.counts.pending} · Approved {payload.counts.approved} · Rejected {payload.counts.rejected}</p></div><div className="admin-quick-links"><QRCodeSVG value={uploadUrl} size={132} /><a href={uploadUrl}>{uploadUrl}</a></div></div><div className="settings-grid"><label>Event name<input value={event.name} onChange={(e) => setPayload({ ...payload, event: { ...event, name: e.target.value } })} onBlur={() => updateEvent({ name: event.name })} /></label><label className="toggle-row"><input type="checkbox" checked={event.uploads_enabled} onChange={(e) => updateEvent({ uploads_enabled: e.target.checked })} /> Guest uploads open</label><label className="toggle-row"><input type="checkbox" checked={event.public_gallery_enabled} onChange={(e) => updateEvent({ public_gallery_enabled: e.target.checked })} /> Gallery visible</label>{saving && <p className="muted">Saving…</p>}</div><div className="filter-tabs">{(['pending', 'approved', 'rejected', 'all'] as const).map((item) => <button className={status === item ? 'active' : ''} key={item} onClick={() => changeStatus(item)}>{item}</button>)}</div>{payload.uploads.length === 0 ? <div className="empty-dev-card"><strong>No uploads in this view.</strong><p>New guest uploads will appear here for review.</p></div> : <div className="review-list">{payload.uploads.map((upload) => <article className={`review-card ${upload.status}`} key={upload.id}><MediaPreview upload={upload} /><div className="review-body"><strong>{upload.guest_name || 'Anonymous guest'}</strong>{upload.guest_message && <p>{upload.guest_message}</p>}<p className="muted">{upload.original_filename} · {formatBytes(upload.file_size)} · {upload.status}</p><div className="actions"><button className="button primary" disabled={busyId === upload.id} onClick={() => act(upload.id, 'approve')}>Approve</button><button className="button danger" disabled={busyId === upload.id} onClick={() => act(upload.id, 'reject')}>Reject</button>{upload.file_url && <a className="button ghost" href={upload.file_url} target="_blank" rel="noopener noreferrer">Open</a>}</div></div></article>)}</div>}</>}</section></main>
