@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { ClerkProvider, RedirectToSignIn, SignInButton, SignOutButton, useAuth, useUser } from '@clerk/clerk-react'
+import { ClerkProvider, SignInButton, SignOutButton, SignUpButton, useAuth, useUser } from '@clerk/clerk-react'
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 export const isClerkEnabled = Boolean(CLERK_KEY)
@@ -75,9 +75,30 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
   const [returnTo] = useState(() => window.location.pathname + window.location.search)
 
   if (!auth.loaded) return <div className="auth-state">Loading secure dashboard…</div>
-  if (auth.enabled && !auth.signedIn) return <RedirectToSignIn redirectUrl={returnTo} />
+  if (auth.enabled && !auth.signedIn) return <AdminAuthPrompt returnTo={returnTo} />
 
   return <>{children}</>
+}
+
+function AdminAuthPrompt({ returnTo }: { returnTo: string }) {
+  return (
+    <main className="admin-auth-page">
+      <section className="admin-auth-card" aria-labelledby="admin-auth-title">
+        <p className="eyebrow">Admin access</p>
+        <h1 id="admin-auth-title">Sign in to manage your event.</h1>
+        <p className="muted">Use your invited admin or reviewer account to review uploads, manage galleries, and invite teammates.</p>
+        <div className="admin-auth-actions">
+          <SignInButton mode="modal" forceRedirectUrl={returnTo}>
+            <button className="button primary" type="button">Sign in</button>
+          </SignInButton>
+          <SignUpButton mode="modal" forceRedirectUrl={returnTo}>
+            <button className="button ghost" type="button">Create account</button>
+          </SignUpButton>
+        </div>
+        <a className="quiet-link" href="/">Return to homepage</a>
+      </section>
+    </main>
+  )
 }
 
 export function AdminLoginButton({ children }: { children: ReactNode }) {
