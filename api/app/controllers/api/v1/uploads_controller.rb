@@ -30,12 +30,15 @@ module Api
         return render json: { error: invalid_file_error }, status: :unprocessable_entity if invalid_file_error
 
         blobs = signed_blob_ids.map { |signed_id| ActiveStorage::Blob.find_signed!(signed_id) }
-        blob_content_types = sniff_blob_content_types(blobs)
-        invalid_blob_error = validate_blobs(blobs, blob_content_types)
-        return render json: { error: invalid_blob_error }, status: :unprocessable_entity if invalid_blob_error
+        invalid_blob_metadata_error = validate_blob_metadata(blobs)
+        return render json: { error: invalid_blob_metadata_error }, status: :unprocessable_entity if invalid_blob_metadata_error
 
         invalid_batch_error = validate_combined_batch_size(files, blobs)
         return render json: { error: invalid_batch_error }, status: :unprocessable_entity if invalid_batch_error
+
+        blob_content_types = sniff_blob_content_types(blobs)
+        invalid_blob_content_error = validate_blob_content_types(blobs, blob_content_types)
+        return render json: { error: invalid_blob_content_error }, status: :unprocessable_entity if invalid_blob_content_error
 
         uploads = files.map { |file| build_upload(event, file) } + blobs.map { |blob| build_direct_upload(event, blob, blob_content_types.fetch(blob.id)) }
         invalid = uploads.find(&:invalid?)
@@ -104,10 +107,7 @@ module Api
         nil
       end
 
-      def validate_blobs(blobs, content_types)
-        invalid_type = blobs.find { |blob| !allowed_content_type?(content_types.fetch(blob.id)) }
-        return "Uploads must be JPEG, PNG, HEIC, WebP, MP4, or MOV files." if invalid_type
-
+      def validate_blob_metadata(blobs)
         empty_blob = blobs.find { |blob| blob.byte_size.to_i <= 0 }
         return "Uploads cannot be empty files." if empty_blob
 
@@ -123,11 +123,17 @@ module Api
         nil
       end
 
+      def validate_blob_content_types(blobs, content_types)
+        invalid_type = blobs.find { |blob| !allowed_content_type?(content_types.fetch(blob.id)) }
+        return "Uploads must be JPEG, PNG, HEIC, WebP, MP4, or MOV files." if invalid_type
+
+        nil
+      end
+
       def sniff_blob_content_types(blobs)
         blobs.each_with_object({}) do |blob, content_types|
-          content_types[blob.id] = blob.open do |file|
-            Marcel::Magic.by_magic(file)&.type || "application/octet-stream"
-          end
+          header = blob.service.download_chunk(blob.key, 0...4.kilobytes)
+          content_types[blob.id] = Marcel::Magic.by_magic(StringIO.new(header))&.type || "application/octet-stream"
         end
       end
 

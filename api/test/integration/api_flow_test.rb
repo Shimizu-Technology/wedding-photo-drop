@@ -85,6 +85,22 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
     assert_equal "image/png", @event.media_uploads.order(:created_at).last.content_type
   end
 
+  test "direct upload rejects oversized blob metadata before downloading content" do
+    blob = ActiveStorage::Blob.create_before_direct_upload!(
+      filename: "huge.mp4",
+      byte_size: MediaUpload::MAX_FILE_SIZE + 1,
+      checksum: Digest::MD5.base64digest("placeholder"),
+      content_type: "video/mp4"
+    )
+
+    assert_no_difference -> { @event.media_uploads.count } do
+      post "/api/v1/events/#{@event.upload_token}/uploads", params: { signed_blob_ids: [ blob.signed_id ] }
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/smaller/, response.parsed_body["error"])
+  end
+
   test "direct upload rejects blob whose declared content type is spoofed" do
     blob = ActiveStorage::Blob.create_and_upload!(
       io: StringIO.new("<script>alert('not an image')</script>"),
