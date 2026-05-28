@@ -30,13 +30,14 @@ module Api
         return render json: { error: invalid_file_error }, status: :unprocessable_entity if invalid_file_error
 
         blobs = signed_blob_ids.map { |signed_id| ActiveStorage::Blob.find_signed!(signed_id) }
-        invalid_blob_error = validate_blobs(blobs)
+        blob_content_types = sniff_blob_content_types(blobs)
+        invalid_blob_error = validate_blobs(blobs, blob_content_types)
         return render json: { error: invalid_blob_error }, status: :unprocessable_entity if invalid_blob_error
 
         invalid_batch_error = validate_combined_batch_size(files, blobs)
         return render json: { error: invalid_batch_error }, status: :unprocessable_entity if invalid_batch_error
 
-        uploads = files.map { |file| build_upload(event, file) } + blobs.map { |blob| build_direct_upload(event, blob) }
+        uploads = files.map { |file| build_upload(event, file) } + blobs.map { |blob| build_direct_upload(event, blob, blob_content_types.fetch(blob.id)) }
         invalid = uploads.find(&:invalid?)
 
         if invalid
@@ -69,16 +70,17 @@ module Api
         upload
       end
 
-      def build_direct_upload(event, blob)
+      def build_direct_upload(event, blob, content_type)
         upload = event.media_uploads.build(
           guest_name: params[:guest_name].to_s.strip.first(80).presence,
           guest_message: params[:guest_message].to_s.strip.first(1_000).presence,
-          media_kind: media_kind_for(blob.content_type.to_s),
+          media_kind: media_kind_for(content_type),
           original_filename: blob.filename.to_s,
-          content_type: blob.content_type.to_s,
+          content_type: content_type,
           file_size: blob.byte_size.to_i
         )
 
+        blob.update!(content_type: content_type) if blob.content_type != content_type
         upload.file.attach(blob)
         upload
       end
@@ -102,8 +104,8 @@ module Api
         nil
       end
 
-      def validate_blobs(blobs)
-        invalid_type = blobs.find { |blob| !allowed_content_type?(blob.content_type.to_s) }
+      def validate_blobs(blobs, content_types)
+        invalid_type = blobs.find { |blob| !allowed_content_type?(content_types.fetch(blob.id)) }
         return "Uploads must be JPEG, PNG, HEIC, WebP, MP4, or MOV files." if invalid_type
 
         empty_blob = blobs.find { |blob| blob.byte_size.to_i <= 0 }
@@ -119,6 +121,14 @@ module Api
         return "Please upload #{MAX_BATCH_SIZE / 1.megabyte}MB or less at a time." if total_size > MAX_BATCH_SIZE
 
         nil
+      end
+
+      def sniff_blob_content_types(blobs)
+        blobs.each_with_object({}) do |blob, content_types|
+          content_types[blob.id] = blob.open do |file|
+            Marcel::Magic.by_magic(file)&.type || "application/octet-stream"
+          end
+        end
       end
 
       def validate_combined_batch_size(files, blobs)
