@@ -3,6 +3,8 @@
 class Event < ApplicationRecord
   has_many :media_uploads, dependent: :destroy
   has_many :album_sections, dependent: :destroy
+  has_many :event_memberships, dependent: :destroy
+  has_many :users, through: :event_memberships
 
   validates :name, :slug, :upload_token, :admin_token, presence: true
   validates :slug, :upload_token, :admin_token, uniqueness: true

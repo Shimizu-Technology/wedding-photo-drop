@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { DirectUpload, type DirectUploadBlob } from '@rails/activestorage'
 import { ArrowRight, Camera, Menu, QrCode, ShieldCheck, UploadCloud, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { AdminLoginButton, AdminSignOutButton, RequireAdmin, useAppAuth, useAuthHeaders } from './auth'
@@ -65,12 +66,16 @@ type AdminPayload = {
 
 type AdminEventsPayload = { events: Array<EventRecord & { counts: Counts }> }
 
-type AdminUser = { id: number; full_name: string; email: string; role: string; active: boolean; invitation_pending?: boolean; invitation_status?: string; first_name?: string | null; last_name?: string | null; invited_at?: string | null; last_sign_in_at?: string | null }
+type AdminUser = { id: number; full_name: string; email: string; role: string; active: boolean; is_super_admin?: boolean; invitation_pending?: boolean; invitation_status?: string; first_name?: string | null; last_name?: string | null; invited_at?: string | null; last_sign_in_at?: string | null }
+
+type EventMembership = { id: number; event_id: number; role: string; active: boolean; invited_at?: string | null; user: AdminUser }
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/$/, '')
-const MAX_FILES = 20
+const MAX_FILES = 100
+const UPLOAD_CHUNK_MAX_FILES = 20
 const MAX_FILE_SIZE = 250 * 1024 * 1024
-const MAX_BATCH_SIZE = 500 * 1024 * 1024
+const MAX_BATCH_SIZE = 2 * 1024 * 1024 * 1024
+const API_PAGE_LIMIT = 48
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/heic', 'image/heif', 'image/webp', 'video/mp4', 'video/quicktime'])
 const ALLOWED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'heic', 'heif', 'webp', 'mp4', 'mov'])
 
@@ -90,6 +95,17 @@ async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   const data = text ? JSON.parse(text) : null
   if (!response.ok) throw new Error(data?.error || `Request failed (${response.status})`)
   return data as T
+}
+
+function directUploadFile(file: File): Promise<DirectUploadBlob> {
+  return new Promise((resolve, reject) => {
+    const upload = new DirectUpload(file, `${API_BASE_URL}/rails/active_storage/direct_uploads`)
+    upload.create((error, blob) => {
+      if (error) reject(new Error(error))
+      else if (blob) resolve(blob)
+      else reject(new Error('Direct upload did not return a blob'))
+    })
+  })
 }
 
 function isAllowedFile(file: File) {
@@ -125,7 +141,7 @@ function App() {
   const [mode, token, nestedId] = [parts[0], parts[1], parts[2]]
 
   if (mode === 'admin' && token === 'events' && nestedId) return <AdminEventRoute eventId={nestedId} />
-  if (mode === 'admin' && token === 'users') return <AdminUsersRoute />
+  if (mode === 'admin' && token === 'users') return <AdminRoute />
   if (mode === 'admin') return <AdminRoute />
   if (mode === 'gallery' && token) return <GalleryPage eventToken={token} />
   if (mode === 'upload' && token) return <UploadPage eventToken={token} />
@@ -221,11 +237,19 @@ function UploadPage({ eventToken }: { eventToken: string }) {
     const validationError = validateFiles(files)
     if (validationError) return setError(validationError)
     setUploading(true); setError(null); setNotice(null)
-    const form = new FormData()
-    form.append('guest_name', guestName); form.append('guest_message', guestMessage); files.forEach((file) => form.append('files[]', file))
     try {
-      const data = await apiJson<{ uploads: MediaUpload[] }>(`/api/v1/events/${eventToken}/uploads`, { method: 'POST', body: form })
-      setNotice(`${data.uploads.length} upload${data.uploads.length === 1 ? '' : 's'} received. Thank you!`); setFiles([])
+      let uploadedCount = 0
+      for (let index = 0; index < files.length; index += UPLOAD_CHUNK_MAX_FILES) {
+        const chunk = files.slice(index, index + UPLOAD_CHUNK_MAX_FILES)
+        setNotice(`Preparing ${Math.min(index + chunk.length, files.length)} of ${files.length} file${files.length === 1 ? '' : 's'}…`)
+        const blobs = await Promise.all(chunk.map((file) => directUploadFile(file)))
+        const form = new FormData()
+        form.append('guest_name', guestName); form.append('guest_message', guestMessage); blobs.forEach((blob) => form.append('signed_blob_ids[]', blob.signed_id))
+        const data = await apiJson<{ uploads: MediaUpload[] }>(`/api/v1/events/${eventToken}/uploads`, { method: 'POST', body: form })
+        uploadedCount += data.uploads.length
+        setNotice(`Uploading ${uploadedCount} of ${files.length} file${files.length === 1 ? '' : 's'}…`)
+      }
+      setNotice(`${uploadedCount} upload${uploadedCount === 1 ? '' : 's'} received. Thank you!`); setFiles([])
       const input = document.getElementById('files') as HTMLInputElement | null; if (input) input.value = ''
     } catch (err) { setError(err instanceof Error ? err.message : 'Upload failed') } finally { setUploading(false) }
   }
@@ -236,13 +260,31 @@ function UploadPage({ eventToken }: { eventToken: string }) {
 function GalleryPage({ eventToken }: { eventToken: string }) {
   const [event, setEvent] = useState<EventRecord | null>(null)
   const [uploads, setUploads] = useState<MediaUpload[]>([])
+  const [nextOffset, setNextOffset] = useState<number | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [activeUploadId, setActiveUploadId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
-  useEffect(() => { apiJson<{ event: EventRecord; uploads: MediaUpload[] }>(`/api/v1/events/${eventToken}/gallery`).then((data) => { setEvent(data.event); setUploads(data.uploads) }).catch((err) => setError(err.message)) }, [eventToken])
-  return <main className="app-page"><AppHeader links={[{ href: '/', label: 'Home' }, { href: `/upload/${eventToken}`, label: 'Upload' }]} /><section className="shell wide"><section className="card"><p className="eyebrow">Approved gallery</p><h1>{event?.name || 'Gallery'}</h1><p className="lede">Only admin-approved uploads appear here.</p>{error && <p className="alert error">{error}</p>}{uploads.length === 0 ? <p className="muted">No approved uploads yet.</p> : <MediaGrid uploads={uploads} />}</section></section></main>
+
+  const loadGallery = useCallback(async function loadGallery(offset = 0, append = false) {
+    const data = await apiJson<{ event: EventRecord; uploads: MediaUpload[]; pagination?: { next_offset: number | null } }>(`/api/v1/events/${eventToken}/gallery?limit=${API_PAGE_LIMIT}&offset=${offset}`)
+    setEvent(data.event)
+    setUploads((current) => append ? [...current, ...data.uploads] : data.uploads)
+    setNextOffset(data.pagination?.next_offset ?? null)
+  }, [eventToken])
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- initial gallery load synchronizes with backend state
+  useEffect(() => { loadGallery().catch((err) => setError(err.message)) }, [loadGallery])
+
+  async function loadMore() {
+    if (nextOffset === null) return
+    setLoadingMore(true)
+    try { await loadGallery(nextOffset, true) } catch (err) { setError(err instanceof Error ? err.message : 'Could not load more photos') } finally { setLoadingMore(false) }
+  }
+
+  return <main className="app-page"><AppHeader links={[{ href: '/', label: 'Home' }, { href: `/upload/${eventToken}`, label: 'Upload' }]} /><section className="shell wide"><section className="card"><p className="eyebrow">Approved gallery</p><h1>{event?.name || 'Gallery'}</h1><p className="lede">Only admin-approved uploads appear here.</p>{error && <p className="alert error">{error}</p>}{uploads.length === 0 ? <p className="muted">No approved uploads yet.</p> : <><MediaGrid uploads={uploads} onOpen={(upload) => setActiveUploadId(upload.id)} />{nextOffset !== null && <button className="button ghost load-more-button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? 'Loading…' : 'Load more'}</button>}</>}{activeUploadId !== null && <MediaLightbox uploads={uploads} activeId={activeUploadId} onClose={() => setActiveUploadId(null)} onActiveIdChange={setActiveUploadId} />}</section></section></main>
 }
 
 function AdminRoute() { return <RequireAdmin><AdminDashboard /></RequireAdmin> }
-function AdminUsersRoute() { return <RequireAdmin><AdminUsersPage /></RequireAdmin> }
 function AdminEventRoute({ eventId }: { eventId: string }) { return <RequireAdmin><AdminEventPage eventId={eventId} /></RequireAdmin> }
 
 function AdminDashboard() {
@@ -299,95 +341,25 @@ function AdminDashboard() {
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not create event') } finally { setCreating(false) }
   }
 
-  return <main className="app-page"><AppHeader admin links={[{ href: '/', label: 'Home' }, { href: '/admin', label: 'Events' }, { href: '/admin/users', label: 'Users' }]} /><section className="admin-shell"><div className="admin-hero"><p className="eyebrow">Admin dashboard</p><h1>Manage wedding events and review guest uploads.</h1><p className="muted">Signed in as {user?.full_name || auth.userName || 'admin'}.</p></div>{error && <p className="alert error">{error}</p>}<form className="admin-create-card" onSubmit={createEvent}><div><p className="eyebrow">New event</p><h2>Create an upload collection</h2></div><input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Event name" /><button className="button primary" disabled={creating}>{creating ? 'Creating…' : 'Create event'}</button></form><div className="admin-event-grid">{events.map((event) => <article className="admin-event-card" key={event.id}><div><p className="eyebrow">{event.slug}</p><h3>{event.name}</h3><p className="muted">Pending {event.counts.pending} · Approved {event.counts.approved} · Total {event.counts.total}</p></div><div className="dev-links"><a className="button primary" href={`/admin/events/${event.id}`}>Review event</a><a className="button ghost" href={`/upload/${event.upload_token}`}>Guest upload</a><a className="button ghost" href={`/gallery/${event.upload_token}`}>Gallery</a></div></article>)}</div></section></main>
-}
-
-function AdminUsersPage() {
-  const authHeaders = useAuthHeaders()
-  const [users, setUsers] = useState<AdminUser[]>([])
-  const [currentUser, setCurrentUser] = useState<AdminUser | null>(null)
-  const [form, setForm] = useState({ email: '', first_name: '', last_name: '', role: 'reviewer' })
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [editForm, setEditForm] = useState({ first_name: '', last_name: '', role: 'reviewer', active: true })
-  const [busyId, setBusyId] = useState<number | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-
-  const loadUsers = useCallback(async function loadUsers() {
-    try {
-      const headers = await authHeaders()
-      const [usersData, meData] = await Promise.all([
-        apiJson<{ users: AdminUser[] }>('/api/v1/admin/users', { headers }),
-        apiJson<{ user: AdminUser }>('/api/v1/admin/me', { headers }),
-      ])
-      setUsers(usersData.users)
-      setCurrentUser(meData.user)
-      setError(null)
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not load users') }
-  }, [authHeaders])
-
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- initial admin users load synchronizes with backend state
-  useEffect(() => { void loadUsers() }, [loadUsers])
-
-  async function inviteUser(eventObj: React.FormEvent) {
-    eventObj.preventDefault(); if (!form.email.trim()) return
-    setSaving(true); setError(null); setNotice(null)
-    try {
-      const headers = await authHeaders()
-      const data = await apiJson<{ invitation_sent: boolean; invitation_error?: string }>('/api/v1/admin/users', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ user: form }) })
-      setNotice(data.invitation_sent ? 'Invitation sent.' : `User created. Invitation email was not sent${data.invitation_error ? `: ${data.invitation_error}` : '.'}`)
-      setForm({ email: '', first_name: '', last_name: '', role: 'reviewer' })
-      await loadUsers()
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not invite user') } finally { setSaving(false) }
-  }
-
-  function startEdit(user: AdminUser) {
-    setEditingId(user.id)
-    setEditForm({ first_name: user.first_name || '', last_name: user.last_name || '', role: user.role, active: user.active })
-  }
-
-  async function saveUser(id: number) {
-    setBusyId(id); setError(null); setNotice(null)
-    try {
-      const headers = await authHeaders()
-      await apiJson(`/api/v1/admin/users/${id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ user: editForm }) })
-      setEditingId(null); setNotice('User updated.'); await loadUsers()
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not update user') } finally { setBusyId(null) }
-  }
-
-  async function resendInvite(id: number) {
-    setBusyId(id); setError(null); setNotice(null)
-    try {
-      const headers = await authHeaders()
-      const data = await apiJson<{ invitation_sent: boolean; invitation_error?: string }>(`/api/v1/admin/users/${id}/resend_invitation`, { method: 'POST', headers })
-      setNotice(data.invitation_sent ? 'Invitation resent.' : `Invitation could not be sent${data.invitation_error ? `: ${data.invitation_error}` : '.'}`)
-      await loadUsers()
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not resend invitation') } finally { setBusyId(null) }
-  }
-
-  async function deleteUser(id: number) {
-    if (!window.confirm('Remove this user?')) return
-    setBusyId(id); setError(null); setNotice(null)
-    try {
-      const headers = await authHeaders()
-      await apiJson(`/api/v1/admin/users/${id}`, { method: 'DELETE', headers })
-      setNotice('User removed.'); await loadUsers()
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not remove user') } finally { setBusyId(null) }
-  }
-
-  return <main className="app-page"><AppHeader admin links={[{ href: '/admin', label: 'Events' }, { href: '/admin/users', label: 'Users' }]} /><section className="admin-shell"><div className="admin-hero"><p className="eyebrow">User management</p><h1>Invite reviewers and manage admin access.</h1><p className="muted">Admins can manage users. Reviewers can review uploads and manage event media.</p></div>{error && <p className="alert error">{error}</p>}{notice && <p className="alert success">{notice}</p>}<form className="admin-create-card" onSubmit={inviteUser}><div><p className="eyebrow">Invite user</p><h2>Add a teammate</h2></div><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email address" type="email" /><select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="reviewer">Reviewer</option><option value="admin">Admin</option></select><button className="button primary" disabled={saving}>{saving ? 'Sending…' : 'Send invite'}</button></form><div className="review-list">{users.map((user) => <article className="review-card" key={user.id}><div className="review-body"><strong>{user.full_name}{currentUser?.id === user.id ? ' (you)' : ''}</strong><p className="muted">{user.email} · {user.role} · {user.invitation_pending ? 'Pending' : user.active ? 'Active' : 'Inactive'}</p>{editingId === user.id && <div className="settings-grid compact-settings"><label>First name<input value={editForm.first_name} onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })} /></label><label>Last name<input value={editForm.last_name} onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })} /></label><label>Role<select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}><option value="reviewer">Reviewer</option><option value="admin">Admin</option></select></label><label className="toggle-row"><input type="checkbox" checked={editForm.active} onChange={(e) => setEditForm({ ...editForm, active: e.target.checked })} /> Active</label></div>}<div className="actions">{editingId === user.id ? <><button className="button primary" disabled={busyId === user.id} onClick={() => saveUser(user.id)}>Save</button><button className="button ghost" onClick={() => setEditingId(null)}>Cancel</button></> : <button className="button ghost" onClick={() => startEdit(user)}>Edit</button>}{user.invitation_pending && <button className="button ghost" disabled={busyId === user.id} onClick={() => resendInvite(user.id)}>Resend invite</button>}{currentUser?.id !== user.id && <button className="button danger" disabled={busyId === user.id} onClick={() => deleteUser(user.id)}>Delete</button>}</div></div></article>)}</div></section></main>
+  return <main className="app-page"><AppHeader admin links={[{ href: '/', label: 'Home' }, { href: '/admin', label: 'Events' }]} /><section className="admin-shell"><div className="admin-hero"><p className="eyebrow">Admin dashboard</p><h1>Manage wedding events and review guest uploads.</h1><p className="muted">Signed in as {user?.full_name || auth.userName || 'admin'}.</p></div>{error && <p className="alert error">{error}</p>}{user?.is_super_admin && <form className="admin-create-card" onSubmit={createEvent}><div><p className="eyebrow">New event</p><h2>Create an upload collection</h2></div><input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Event name" /><button className="button primary" disabled={creating}>{creating ? 'Creating…' : 'Create event'}</button></form>}<div className="admin-event-grid">{events.map((event) => <article className="admin-event-card" key={event.id}><div><p className="eyebrow">{event.slug}</p><h3>{event.name}</h3><p className="muted">Pending {event.counts.pending} · Approved {event.counts.approved} · Total {event.counts.total}</p></div><div className="dev-links"><a className="button primary" href={`/admin/events/${event.id}`}>Review event</a><a className="button ghost" href={`/upload/${event.upload_token}`}>Guest upload</a><a className="button ghost" href={`/gallery/${event.upload_token}`}>Gallery</a></div></article>)}</div></section></main>
 }
 
 function AdminEventPage({ eventId }: { eventId: string }) {
   const authHeaders = useAuthHeaders()
   const [payload, setPayload] = useState<AdminPayload | null>(null)
   const [status, setStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending')
+  const [albumFilter, setAlbumFilter] = useState<'all' | 'uncategorized' | string>('all')
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [newSectionName, setNewSectionName] = useState('')
+  const [editingSectionId, setEditingSectionId] = useState<number | null>(null)
+  const [sectionDraft, setSectionDraft] = useState({ name: '', description: '', sort_order: 0, visible: true })
+  const [activeUploadId, setActiveUploadId] = useState<number | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [memberships, setMemberships] = useState<EventMembership[]>([])
+  const [memberForm, setMemberForm] = useState({ email: '', role: 'admin' })
   const statusRef = useRef(status)
   const event = payload?.event
   const uploadUrl = event ? `${window.location.origin}/upload/${event.upload_token}` : ''
@@ -396,10 +368,22 @@ function AdminEventPage({ eventId }: { eventId: string }) {
   const refresh = useCallback(async function refresh(nextStatus: typeof status) {
     try {
       const headers = await authHeaders()
-      const qs = nextStatus === 'all' ? '' : `?status=${nextStatus}`
-      const data = await apiJson<AdminPayload>(`/api/v1/admin/events/${eventId}${qs}`, { headers })
+      const qs = new URLSearchParams({ limit: String(API_PAGE_LIMIT), offset: '0' })
+      if (nextStatus !== 'all') qs.set('status', nextStatus)
+      if (albumFilter !== 'all') qs.set('album_section_id', albumFilter === 'uncategorized' ? '' : albumFilter)
+      const data = await apiJson<AdminPayload>(`/api/v1/admin/events/${eventId}?${qs.toString()}`, { headers })
       setPayload(data); setError(null)
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not load event') }
+  }, [albumFilter, authHeaders, eventId])
+
+  const loadMemberships = useCallback(async function loadMemberships() {
+    try {
+      const headers = await authHeaders()
+      const data = await apiJson<{ memberships: EventMembership[] }>(`/api/v1/admin/events/${eventId}/memberships`, { headers })
+      setMemberships(data.memberships)
+    } catch {
+      setMemberships([])
+    }
   }, [authHeaders, eventId])
 
   useEffect(() => {
@@ -412,11 +396,14 @@ function AdminEventPage({ eventId }: { eventId: string }) {
     async function loadEvent() {
       try {
         const headers = await authHeaders()
-        const qs = status === 'all' ? '' : `?status=${status}`
-        const data = await apiJson<AdminPayload>(`/api/v1/admin/events/${eventId}${qs}`, { headers })
+        const qs = new URLSearchParams({ limit: String(API_PAGE_LIMIT), offset: '0' })
+        if (status !== 'all') qs.set('status', status)
+        if (albumFilter !== 'all') qs.set('album_section_id', albumFilter === 'uncategorized' ? '' : albumFilter)
+        const data = await apiJson<AdminPayload>(`/api/v1/admin/events/${eventId}?${qs.toString()}`, { headers })
         if (!ignore) {
           setPayload(data)
           setError(null)
+          void loadMemberships()
         }
       } catch (err) {
         if (!ignore) setError(err instanceof Error ? err.message : 'Could not load event')
@@ -425,20 +412,52 @@ function AdminEventPage({ eventId }: { eventId: string }) {
 
     void loadEvent()
     return () => { ignore = true }
-  }, [authHeaders, eventId, status])
+  }, [albumFilter, authHeaders, eventId, loadMemberships, status])
   async function act(id: number, action: 'approve' | 'reject') { setBusyId(id); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/uploads/${id}/${action}`, { method: 'PATCH', headers }); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Action failed') } finally { setBusyId(null) } }
   async function updateEvent(changes: Partial<EventRecord>) { if (!event) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${event.id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ event: changes }) }); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Could not update event') } finally { setSaving(false) } }
   async function updateUpload(id: number, changes: Partial<MediaUpload>) { setBusyId(id); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/uploads/${id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ upload: changes }) }); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Could not update upload') } finally { setBusyId(null) } }
   async function bulkAction(action: 'bulk_approve' | 'bulk_reject' | 'bulk_destroy') { if (selectedIds.length === 0) return; if (action === 'bulk_destroy' && !window.confirm(`Delete ${selectedIds.length} selected upload(s)?`)) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/uploads/${action}`, { method: action === 'bulk_destroy' ? 'DELETE' : 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: selectedIds }) }); setSelectedIds([]); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Bulk action failed') } finally { setSaving(false) } }
   async function deleteUpload(id: number) { if (!window.confirm('Delete this upload?')) return; setBusyId(id); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/uploads/${id}`, { method: 'DELETE', headers }); setSelectedIds((ids) => ids.filter((selectedId) => selectedId !== id)); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Could not delete upload') } finally { setBusyId(null) } }
   async function createSection(eventObj: React.FormEvent) { eventObj.preventDefault(); if (!newSectionName.trim()) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/album_sections`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ album_section: { name: newSectionName.trim(), sort_order: payload?.album_sections.length || 0 } }) }); setNewSectionName(''); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Could not create section') } finally { setSaving(false) } }
+  function startSectionEdit(section: AlbumSection) { setEditingSectionId(section.id); setSectionDraft({ name: section.name, description: section.description || '', sort_order: section.sort_order, visible: section.visible }) }
+  async function saveSection(id: number) { setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/album_sections/${id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ album_section: sectionDraft }) }); setEditingSectionId(null); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Could not update section') } finally { setSaving(false) } }
+  async function deleteSection(id: number) { if (!window.confirm('Delete this album section? Photos will move back to Uncategorized.')) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/album_sections/${id}`, { method: 'DELETE', headers }); await refresh(statusRef.current) } catch (err) { setError(err instanceof Error ? err.message : 'Could not delete section') } finally { setSaving(false) } }
+  async function inviteEventMember(eventObj: React.FormEvent) { eventObj.preventDefault(); if (!memberForm.email.trim()) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/memberships`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ membership: memberForm }) }); setMemberForm({ email: '', role: 'admin' }); await loadMemberships() } catch (err) { setError(err instanceof Error ? err.message : 'Could not invite event admin') } finally { setSaving(false) } }
+  async function updateMembership(id: number, changes: Partial<EventMembership>) { setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/memberships/${id}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ membership: changes }) }); await loadMemberships() } catch (err) { setError(err instanceof Error ? err.message : 'Could not update event access') } finally { setSaving(false) } }
+  async function deleteMembership(id: number) { if (!window.confirm('Remove this person from the event admin side?')) return; setSaving(true); try { const headers = await authHeaders(); await apiJson(`/api/v1/admin/events/${eventId}/memberships/${id}`, { method: 'DELETE', headers }); await loadMemberships() } catch (err) { setError(err instanceof Error ? err.message : 'Could not remove event access') } finally { setSaving(false) } }
+  async function loadMoreUploads() { if (!payload?.pagination?.next_offset) return; setLoadingMore(true); try { const headers = await authHeaders(); const qs = new URLSearchParams({ limit: String(API_PAGE_LIMIT), offset: String(payload.pagination.next_offset) }); if (statusRef.current !== 'all') qs.set('status', statusRef.current); if (albumFilter !== 'all') qs.set('album_section_id', albumFilter === 'uncategorized' ? '' : albumFilter); const data = await apiJson<AdminPayload>(`/api/v1/admin/events/${eventId}?${qs.toString()}`, { headers }); setPayload({ ...data, uploads: [...payload.uploads, ...data.uploads] }) } catch (err) { setError(err instanceof Error ? err.message : 'Could not load more uploads') } finally { setLoadingMore(false) } }
   function toggleSelected(id: number) { setSelectedIds((ids) => ids.includes(id) ? ids.filter((selectedId) => selectedId !== id) : [...ids, id]) }
-  function changeStatus(next: typeof status) { setStatus(next) }
+  function changeStatus(next: typeof status) { setStatus(next); setSelectedIds([]); setActiveUploadId(null) }
+  function changeAlbumFilter(next: typeof albumFilter) { setAlbumFilter(next); setSelectedIds([]); setActiveUploadId(null) }
 
-  return <main className="app-page"><AppHeader admin links={[{ href: '/admin', label: 'Events' }, { href: '/admin/users', label: 'Users' }, { href: uploadUrl || '#', label: 'Guest upload' }, { href: galleryUrl || '#', label: 'Gallery' }]} /><section className="admin-shell">{error && <p className="alert error">{error}</p>}{payload && event && <><div className="admin-detail-header"><div><p className="eyebrow">Event review</p><h1>{event.name}</h1><p className="muted">Pending {payload.counts.pending} · Approved {payload.counts.approved} · Rejected {payload.counts.rejected}</p></div><div className="admin-quick-links"><QRCodeSVG value={uploadUrl} size={132} /><a href={uploadUrl}>{uploadUrl}</a></div></div><div className="settings-grid"><label>Event name<input value={event.name} onChange={(e) => setPayload({ ...payload, event: { ...event, name: e.target.value } })} onBlur={() => updateEvent({ name: event.name })} /></label><label className="toggle-row"><input type="checkbox" checked={event.uploads_enabled} onChange={(e) => updateEvent({ uploads_enabled: e.target.checked })} /> Guest uploads open</label><label className="toggle-row"><input type="checkbox" checked={event.public_gallery_enabled} onChange={(e) => updateEvent({ public_gallery_enabled: e.target.checked })} /> Gallery visible</label><a className="button ghost" href={`${API_BASE_URL}/api/v1/admin/events/${eventId}/approved_download`} onClick={async (clickEvent) => { clickEvent.preventDefault(); const headers = await authHeaders(); const response = await fetch(`${API_BASE_URL}/api/v1/admin/events/${eventId}/approved_download`, { headers }); if (!response.ok) { setError('No approved media ready to download'); return } const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `${event.slug}-approved-media.zip`; link.click(); URL.revokeObjectURL(url) }}>Download approved</a>{saving && <p className="muted">Saving…</p>}</div><form className="admin-create-card slim-card" onSubmit={createSection}><div><p className="eyebrow">Album sections</p><h2>Organize the gallery</h2></div><input value={newSectionName} onChange={(e) => setNewSectionName(e.target.value)} placeholder="Section name" /><button className="button primary" disabled={saving}>Add section</button></form>{payload.album_sections.length > 0 && <div className="section-chip-row">{payload.album_sections.map((section) => <span className="section-chip" key={section.id}>{section.name} <small>{section.uploads_count || 0}</small></span>)}</div>}<div className="filter-tabs">{(['pending', 'approved', 'rejected', 'all'] as const).map((item) => <button className={status === item ? 'active' : ''} key={item} onClick={() => changeStatus(item)}>{item}</button>)}</div>{selectedIds.length > 0 && <div className="bulk-toolbar"><strong>{selectedIds.length} selected</strong><button className="button primary" onClick={() => bulkAction('bulk_approve')}>Approve selected</button><button className="button ghost" onClick={() => bulkAction('bulk_reject')}>Reject selected</button><button className="button danger" onClick={() => bulkAction('bulk_destroy')}>Delete selected</button><button className="button ghost" onClick={() => setSelectedIds([])}>Clear</button></div>}{payload.uploads.length === 0 ? <div className="empty-dev-card"><strong>No uploads in this view.</strong><p>New guest uploads will appear here for review.</p></div> : <div className="review-list">{payload.uploads.map((upload) => <article className={`review-card ${upload.status}`} key={upload.id}><label className="select-upload"><input type="checkbox" checked={selectedIds.includes(upload.id)} onChange={() => toggleSelected(upload.id)} /> Select</label><MediaPreview upload={upload} /><div className="review-body"><strong>{upload.guest_name || 'Anonymous guest'}</strong>{upload.guest_message && <p>{upload.guest_message}</p>}<p className="muted">{upload.original_filename} · {formatBytes(upload.file_size)} · {upload.status}{upload.album_section ? ` · ${upload.album_section.name}` : ''}</p><label className="compact-label">Album section<select value={upload.album_section_id || ''} onChange={(e) => updateUpload(upload.id, { album_section_id: e.target.value ? Number(e.target.value) : null })}><option value="">Uncategorized</option>{payload.album_sections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}</select></label><div className="actions"><button className="button primary" disabled={busyId === upload.id} onClick={() => act(upload.id, 'approve')}>Approve</button><button className="button danger" disabled={busyId === upload.id} onClick={() => act(upload.id, 'reject')}>Reject</button><button className="button danger" disabled={busyId === upload.id} onClick={() => deleteUpload(upload.id)}>Delete</button>{upload.file_url && <a className="button ghost" href={upload.file_url} target="_blank" rel="noopener noreferrer">Open</a>}</div></div></article>)}</div>}</>}</section></main>
+  return <main className="app-page"><AppHeader admin links={[{ href: '/admin', label: 'Events' }, { href: uploadUrl || '#', label: 'Guest upload' }, { href: galleryUrl || '#', label: 'Gallery' }]} /><section className="admin-shell">{error && <p className="alert error">{error}</p>}{payload && event && <><div className="admin-detail-header"><div><p className="eyebrow">Event review</p><h1>{event.name}</h1><p className="muted">Pending {payload.counts.pending} · Approved {payload.counts.approved} · Rejected {payload.counts.rejected}</p></div><div className="admin-quick-links"><QRCodeSVG value={uploadUrl} size={132} /><a href={uploadUrl}>{uploadUrl}</a></div></div><div className="settings-grid"><label>Event name<input value={event.name} onChange={(e) => setPayload({ ...payload, event: { ...event, name: e.target.value } })} onBlur={() => updateEvent({ name: event.name })} /></label><label className="toggle-row"><input type="checkbox" checked={event.uploads_enabled} onChange={(e) => updateEvent({ uploads_enabled: e.target.checked })} /> Guest uploads open</label><label className="toggle-row"><input type="checkbox" checked={event.public_gallery_enabled} onChange={(e) => updateEvent({ public_gallery_enabled: e.target.checked })} /> Gallery visible</label><a className="button ghost" href={`${API_BASE_URL}/api/v1/admin/events/${eventId}/approved_download`} onClick={async (clickEvent) => { clickEvent.preventDefault(); const headers = await authHeaders(); const response = await fetch(`${API_BASE_URL}/api/v1/admin/events/${eventId}/approved_download`, { headers }); if (!response.ok) { setError('No approved media ready to download'); return } const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `${event.slug}-approved-media.zip`; link.click(); URL.revokeObjectURL(url) }}>Download approved</a>{saving && <p className="muted">Saving…</p>}</div><form className="admin-create-card slim-card" onSubmit={inviteEventMember}><div><p className="eyebrow">Event admins</p><h2>Invite event-specific access</h2></div><input value={memberForm.email} onChange={(e) => setMemberForm({ ...memberForm, email: e.target.value })} placeholder="Email address" type="email" /><select value={memberForm.role} onChange={(e) => setMemberForm({ ...memberForm, role: e.target.value })}><option value="admin">Admin</option><option value="reviewer">Reviewer</option></select><button className="button primary" disabled={saving}>Invite</button></form>{memberships.length > 0 && <div className="album-section-list">{memberships.map((membership) => <article className="album-section-card" key={membership.id}><div><strong>{membership.user.full_name}</strong><p className="muted">{membership.user.email} · {membership.role} · {membership.active ? 'Active' : 'Inactive'}{membership.user.invitation_pending ? ' · Pending invite' : ''}</p></div><div className="actions"><select value={membership.role} onChange={(e) => updateMembership(membership.id, { role: e.target.value })}><option value="admin">Admin</option><option value="reviewer">Reviewer</option></select><button className="button ghost" onClick={() => updateMembership(membership.id, { active: !membership.active })}>{membership.active ? 'Deactivate' : 'Activate'}</button><button className="button danger" onClick={() => deleteMembership(membership.id)}>Remove</button></div></article>)}</div>}<form className="admin-create-card slim-card" onSubmit={createSection}><div><p className="eyebrow">Album sections</p><h2>Organize the gallery</h2></div><input value={newSectionName} onChange={(e) => setNewSectionName(e.target.value)} placeholder="Section name" /><button className="button primary" disabled={saving}>Add section</button></form>{payload.album_sections.length > 0 && <div className="album-section-list">{payload.album_sections.map((section) => <article className="album-section-card" key={section.id}>{editingSectionId === section.id ? <><div className="album-section-fields"><input value={sectionDraft.name} onChange={(e) => setSectionDraft({ ...sectionDraft, name: e.target.value })} aria-label="Section name" /><input value={sectionDraft.description} onChange={(e) => setSectionDraft({ ...sectionDraft, description: e.target.value })} placeholder="Description" aria-label="Section description" /><input type="number" value={sectionDraft.sort_order} onChange={(e) => setSectionDraft({ ...sectionDraft, sort_order: Number(e.target.value) })} aria-label="Sort order" /><label className="toggle-row"><input type="checkbox" checked={sectionDraft.visible} onChange={(e) => setSectionDraft({ ...sectionDraft, visible: e.target.checked })} /> Visible</label></div><div className="actions"><button className="button primary" disabled={saving} onClick={() => saveSection(section.id)}>Save section</button><button className="button ghost" onClick={() => setEditingSectionId(null)}>Cancel</button></div></> : <><div><strong>{section.name}</strong><p className="muted">{section.uploads_count || 0} uploads · {section.visible ? 'Visible' : 'Hidden'}</p>{section.description && <p>{section.description}</p>}</div><div className="actions"><button className="button ghost" onClick={() => startSectionEdit(section)}>Edit</button><button className="button danger" onClick={() => deleteSection(section.id)}>Delete</button></div></>}</article>)}</div>}<div className="filter-tabs">{(['pending', 'approved', 'rejected', 'all'] as const).map((item) => <button className={status === item ? 'active' : ''} key={item} onClick={() => changeStatus(item)}>{item}</button>)}</div><div className="album-filter-bar"><span>Album</span><button className={albumFilter === 'all' ? 'active' : ''} onClick={() => changeAlbumFilter('all')}>All albums</button><button className={albumFilter === 'uncategorized' ? 'active' : ''} onClick={() => changeAlbumFilter('uncategorized')}>Uncategorized</button>{payload.album_sections.map((section) => <button className={albumFilter === String(section.id) ? 'active' : ''} key={section.id} onClick={() => changeAlbumFilter(String(section.id))}>{section.name}</button>)}</div>{selectedIds.length > 0 && <div className="bulk-toolbar"><strong>{selectedIds.length} selected</strong><button className="button primary" onClick={() => bulkAction('bulk_approve')}>Approve selected</button><button className="button ghost" onClick={() => bulkAction('bulk_reject')}>Reject selected</button><button className="button danger" onClick={() => bulkAction('bulk_destroy')}>Delete selected</button><button className="button ghost" onClick={() => setSelectedIds([])}>Clear</button></div>}{payload.uploads.length === 0 ? <div className="empty-dev-card"><strong>No uploads in this view.</strong><p>New guest uploads will appear here for review.</p></div> : <div className="review-list">{payload.uploads.map((upload) => <article className={`review-card ${upload.status}`} key={upload.id}><label className="select-upload"><input type="checkbox" checked={selectedIds.includes(upload.id)} onChange={() => toggleSelected(upload.id)} /> Select</label><button className="media-preview-button" type="button" onClick={() => setActiveUploadId(upload.id)}><MediaPreview upload={upload} /></button><div className="review-body"><strong>{upload.guest_name || 'Anonymous guest'}</strong>{upload.guest_message && <p>{upload.guest_message}</p>}<p className="muted">{upload.original_filename} · {formatBytes(upload.file_size)} · {upload.status}{upload.album_section ? ` · ${upload.album_section.name}` : ''}</p><label className="compact-label">Album section<select value={upload.album_section_id || ''} onChange={(e) => updateUpload(upload.id, { album_section_id: e.target.value ? Number(e.target.value) : null })}><option value="">Uncategorized</option>{payload.album_sections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}</select></label><div className="actions"><button className="button primary" disabled={busyId === upload.id} onClick={() => act(upload.id, 'approve')}>Approve</button><button className="button danger" disabled={busyId === upload.id} onClick={() => act(upload.id, 'reject')}>Reject</button><button className="button danger" disabled={busyId === upload.id} onClick={() => deleteUpload(upload.id)}>Delete</button>{upload.file_url && <button className="button ghost" onClick={() => setActiveUploadId(upload.id)}>Open</button>}</div></div></article>)}</div>}{payload.pagination?.next_offset !== null && payload.pagination?.next_offset !== undefined && <button className="button ghost load-more-button" disabled={loadingMore} onClick={loadMoreUploads}>{loadingMore ? 'Loading…' : 'Load more uploads'}</button>}{activeUploadId !== null && <MediaLightbox uploads={payload.uploads} activeId={activeUploadId} onClose={() => setActiveUploadId(null)} onActiveIdChange={setActiveUploadId} adminControls={{ albumSections: payload.album_sections, busyId, onApprove: (id) => act(id, 'approve'), onReject: (id) => act(id, 'reject'), onDelete: deleteUpload, onUpdateUpload: updateUpload }} />}</>}</section></main>
 }
 
-function MediaGrid({ uploads }: { uploads: MediaUpload[] }) { return <div className="media-grid">{uploads.map((upload) => <MediaPreview key={upload.id} upload={upload} />)}</div> }
+function MediaGrid({ uploads, onOpen }: { uploads: MediaUpload[]; onOpen?: (upload: MediaUpload) => void }) { return <div className="media-grid">{uploads.map((upload) => <button key={upload.id} type="button" className="gallery-media-button" onClick={() => onOpen?.(upload)}><MediaPreview upload={upload} /></button>)}</div> }
 function MediaPreview({ upload }: { upload: MediaUpload }) { if (!upload.file_url) return <div className="placeholder">No preview</div>; if (upload.media_kind === 'video') return <video src={upload.file_url} controls playsInline />; return <img src={upload.file_url} alt={upload.guest_message || upload.original_filename} loading="lazy" referrerPolicy="no-referrer" /> }
+
+type LightboxAdminControls = { albumSections: AlbumSection[]; busyId: number | null; onApprove: (id: number) => void; onReject: (id: number) => void; onDelete: (id: number) => void; onUpdateUpload: (id: number, changes: Partial<MediaUpload>) => void }
+
+function MediaLightbox({ uploads, activeId, onClose, onActiveIdChange, adminControls }: { uploads: MediaUpload[]; activeId: number; onClose: () => void; onActiveIdChange: (id: number) => void; adminControls?: LightboxAdminControls }) {
+  const index = Math.max(0, uploads.findIndex((upload) => upload.id === activeId))
+  const upload = uploads[index]
+  const hasPrevious = index > 0
+  const hasNext = index < uploads.length - 1
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose()
+      if (event.key === 'ArrowLeft' && hasPrevious) onActiveIdChange(uploads[index - 1].id)
+      if (event.key === 'ArrowRight' && hasNext) onActiveIdChange(uploads[index + 1].id)
+    }
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', onKeyDown)
+    return () => { document.body.style.overflow = ''; window.removeEventListener('keydown', onKeyDown) }
+  }, [hasNext, hasPrevious, index, onActiveIdChange, onClose, uploads])
+
+  if (!upload) return null
+
+  return <div className="lightbox" role="dialog" aria-modal="true" aria-label="Media preview"><button className="lightbox-backdrop" type="button" aria-label="Close preview" onClick={onClose} /><div className="lightbox-panel"><div className="lightbox-stage"><button className="lightbox-close" type="button" onClick={onClose}>Close</button>{hasPrevious && <button className="lightbox-nav previous" type="button" onClick={() => onActiveIdChange(uploads[index - 1].id)}>Previous</button>}{hasNext && <button className="lightbox-nav next" type="button" onClick={() => onActiveIdChange(uploads[index + 1].id)}>Next</button>}{upload.media_kind === 'video' && upload.file_url ? <video src={upload.file_url} controls playsInline autoPlay /> : upload.file_url ? <img src={upload.file_url} alt={upload.guest_message || upload.original_filename} /> : <div className="placeholder">No preview</div>}</div><aside className="lightbox-sidebar"><p className="eyebrow">{upload.status}</p><h2>{upload.guest_name || 'Anonymous guest'}</h2>{upload.guest_message && <p>{upload.guest_message}</p>}<p className="muted">{upload.original_filename} · {formatBytes(upload.file_size)}</p>{adminControls ? <><label className="compact-label">Album section<select value={upload.album_section_id || ''} onChange={(e) => adminControls.onUpdateUpload(upload.id, { album_section_id: e.target.value ? Number(e.target.value) : null })}><option value="">Uncategorized</option>{adminControls.albumSections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}</select></label><div className="actions"><button className="button primary" disabled={adminControls.busyId === upload.id} onClick={() => adminControls.onApprove(upload.id)}>Approve</button><button className="button danger" disabled={adminControls.busyId === upload.id} onClick={() => adminControls.onReject(upload.id)}>Reject</button><button className="button danger" disabled={adminControls.busyId === upload.id} onClick={() => adminControls.onDelete(upload.id)}>Delete</button></div></> : <p className="muted">{index + 1} of {uploads.length}</p>}</aside></div></div>
+}
 
 export default App

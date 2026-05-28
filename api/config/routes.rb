@@ -13,6 +13,9 @@ Rails.application.routes.draw do
         resources :events, controller: "managed_events", only: [ :index, :show, :create, :update ] do
           get "approved_download", to: "exports#approved"
           resources :album_sections, only: [ :index, :create, :update, :destroy ]
+          resources :memberships, controller: "event_memberships", only: [ :index, :create, :update, :destroy ] do
+            post "resend_invitation", on: :member
+          end
           patch "uploads/bulk_approve", to: "managed_uploads#bulk_approve"
           patch "uploads/bulk_reject", to: "managed_uploads#bulk_reject"
           delete "uploads/bulk_destroy", to: "managed_uploads#bulk_destroy"

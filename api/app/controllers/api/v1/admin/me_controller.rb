@@ -22,7 +22,8 @@ module Api
             role: user.role,
             active: user.active?,
             is_admin: user.admin?,
-            is_staff: user.staff?
+            is_staff: user.staff?,
+            is_super_admin: user.super_admin?
           }
         end
       end

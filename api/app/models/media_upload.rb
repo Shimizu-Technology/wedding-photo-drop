@@ -30,6 +30,8 @@ class MediaUpload < ApplicationRecord
   validate :attached_file_matches_metadata
   validate :album_section_belongs_to_event
 
+  after_commit :enqueue_processing, on: :create
+
   scope :newest_first, -> { order(created_at: :desc) }
   scope :approved, -> { where(status: "approved") }
   scope :pending, -> { where(status: "pending") }
@@ -70,5 +72,9 @@ class MediaUpload < ApplicationRecord
     return if album_section_id.blank? || album_section&.event_id == event_id
 
     errors.add(:album_section, "must belong to this event")
+  end
+
+  def enqueue_processing
+    MediaUploadProcessingJob.perform_later(id) if file.attached?
   end
 end

@@ -4,7 +4,7 @@ module Api
   module V1
     module Admin
       class UsersController < ApplicationController
-        before_action :require_admin!
+        before_action :require_super_admin!
         before_action :set_user, only: [ :show, :update, :destroy, :resend_invitation ]
 
         def index

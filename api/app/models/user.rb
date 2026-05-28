@@ -5,6 +5,8 @@ class User < ApplicationRecord
   INVITATION_STATUSES = %w[pending accepted revoked].freeze
 
   belongs_to :invited_by, class_name: "User", optional: true
+  has_many :event_memberships, dependent: :destroy
+  has_many :events, through: :event_memberships
 
   validates :clerk_id, :email, :role, presence: true
   validates :clerk_id, uniqueness: true
@@ -15,8 +17,12 @@ class User < ApplicationRecord
 
   before_validation :normalize_email
 
+  def super_admin?
+    super_admin
+  end
+
   def admin?
-    role == "admin"
+    super_admin? || role == "admin"
   end
 
   def reviewer?
@@ -24,7 +30,21 @@ class User < ApplicationRecord
   end
 
   def staff?
-    admin? || reviewer?
+    super_admin? || admin? || reviewer? || event_memberships.where(active: true).exists?
+  end
+
+  def event_role(event)
+    return "super_admin" if super_admin?
+
+    event_memberships.find_by(event: event, active: true)&.role
+  end
+
+  def can_manage_event?(event)
+    super_admin? || event_role(event).present?
+  end
+
+  def can_admin_event?(event)
+    super_admin? || event_role(event) == "admin"
   end
 
   def invitation_pending?
@@ -48,6 +68,7 @@ class User < ApplicationRecord
       "full_name" => full_name,
       "is_admin" => admin?,
       "is_staff" => staff?,
+      "is_super_admin" => super_admin?,
       "invitation_pending" => invitation_pending?,
       "active" => active?
     )
