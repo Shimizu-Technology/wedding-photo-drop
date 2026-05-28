@@ -92,7 +92,7 @@ module Api
         end
 
         def safe_role(role)
-          EventMembership::ROLES.include?(role.to_s) ? role.to_s : "admin"
+          EventMembership::ROLES.include?(role.to_s) ? role.to_s : "reviewer"
         end
 
         def create_clerk_invitation(user, ignore_existing: false)

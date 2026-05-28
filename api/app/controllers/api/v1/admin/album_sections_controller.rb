@@ -50,7 +50,7 @@ module Api
         end
 
         def require_current_event_admin!
-          require_event_admin!(@event) if @event
+          require_event_admin!(@event)
         end
 
         def section_params

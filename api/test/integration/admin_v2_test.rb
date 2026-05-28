@@ -27,6 +27,14 @@ class AdminV2Test < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "event membership invalid role falls back to reviewer" do
+    post "/api/v1/admin/events/#{@event.id}/memberships", params: { membership: { email: "typo-role@example.com", role: "owner" } }, headers: @headers
+
+    assert_response :created
+    membership = @event.event_memberships.joins(:user).find_by!(users: { email: "typo-role@example.com" })
+    assert_equal "reviewer", membership.role
+  end
+
   test "reviewer cannot manage users" do
     get "/api/v1/admin/users", headers: { "Authorization" => "Bearer test_token_#{@reviewer.id}" }
     assert_response :forbidden

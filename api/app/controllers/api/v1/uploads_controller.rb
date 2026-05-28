@@ -33,6 +33,9 @@ module Api
         invalid_blob_error = validate_blobs(blobs)
         return render json: { error: invalid_blob_error }, status: :unprocessable_entity if invalid_blob_error
 
+        invalid_batch_error = validate_combined_batch_size(files, blobs)
+        return render json: { error: invalid_batch_error }, status: :unprocessable_entity if invalid_batch_error
+
         uploads = files.map { |file| build_upload(event, file) } + blobs.map { |blob| build_direct_upload(event, blob) }
         invalid = uploads.find(&:invalid?)
 
@@ -113,6 +116,13 @@ module Api
         return "Filenames must be 255 characters or fewer." if long_filename
 
         total_size = blobs.sum { |blob| blob.byte_size.to_i }
+        return "Please upload #{MAX_BATCH_SIZE / 1.megabyte}MB or less at a time." if total_size > MAX_BATCH_SIZE
+
+        nil
+      end
+
+      def validate_combined_batch_size(files, blobs)
+        total_size = files.sum { |file| file.size.to_i } + blobs.sum { |blob| blob.byte_size.to_i }
         return "Please upload #{MAX_BATCH_SIZE / 1.megabyte}MB or less at a time." if total_size > MAX_BATCH_SIZE
 
         nil

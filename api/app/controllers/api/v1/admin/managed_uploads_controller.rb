@@ -65,7 +65,7 @@ module Api
         end
 
         def require_current_event_staff!
-          require_event_staff!(@event) if @event
+          require_event_staff!(@event)
         end
 
         def set_upload

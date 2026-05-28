@@ -102,13 +102,17 @@ module ClerkAuthenticatable
 
   def identity_from(payload)
     clerk_id = payload["sub"].to_s
-    clerk_profile = clerk_profile_for(clerk_id)
+    email = normalized_email(payload["email"].presence || payload["primary_email_address"].presence || payload.dig("email_addresses", 0, "email_address"))
+    first_name = payload["first_name"].presence || payload["given_name"].presence
+    last_name = payload["last_name"].presence || payload["family_name"].presence
+
+    clerk_profile = email.blank? || first_name.blank? || last_name.blank? ? clerk_profile_for(clerk_id) : {}
 
     {
       clerk_id: clerk_id,
-      email: normalized_email(payload["email"].presence || payload["primary_email_address"].presence || payload.dig("email_addresses", 0, "email_address") || clerk_profile[:email]),
-      first_name: payload["first_name"].presence || payload["given_name"].presence || clerk_profile[:first_name],
-      last_name: payload["last_name"].presence || payload["family_name"].presence || clerk_profile[:last_name]
+      email: email || normalized_email(clerk_profile[:email]),
+      first_name: first_name || clerk_profile[:first_name],
+      last_name: last_name || clerk_profile[:last_name]
     }
   end
 
@@ -165,6 +169,9 @@ module ClerkAuthenticatable
     )
     user.save! if user.new_record? || user.changed?
     user
+  rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique => e
+    Rails.logger.warn("Super admin sync failed for clerk_id=#{identity[:clerk_id]}: #{e.message}")
+    User.find_by(clerk_id: identity[:clerk_id]) || User.find_by("LOWER(email) = ?", identity[:email])
   end
 
   def super_admin_email?(email)
