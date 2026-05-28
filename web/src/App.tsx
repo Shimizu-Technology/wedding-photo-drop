@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DirectUpload } from '@rails/activestorage'
+import { DirectUpload, type DirectUploadBlob } from '@rails/activestorage'
 import { ArrowRight, Camera, Menu, QrCode, ShieldCheck, UploadCloud, X } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import { AdminLoginButton, AdminSignOutButton, RequireAdmin, useAppAuth, useAuthHeaders } from './auth'
@@ -97,14 +97,13 @@ async function apiJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   return data as T
 }
 
-type DirectUploadBlob = { signed_id: string }
-
 function directUploadFile(file: File): Promise<DirectUploadBlob> {
   return new Promise((resolve, reject) => {
     const upload = new DirectUpload(file, `${API_BASE_URL}/rails/active_storage/direct_uploads`)
     upload.create((error, blob) => {
       if (error) reject(new Error(error))
-      else resolve(blob as DirectUploadBlob)
+      else if (blob) resolve(blob)
+      else reject(new Error('Direct upload did not return a blob'))
     })
   })
 }
