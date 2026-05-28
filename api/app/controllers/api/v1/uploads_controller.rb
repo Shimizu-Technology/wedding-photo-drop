@@ -133,7 +133,7 @@ module Api
       def sniff_blob_content_types(blobs)
         blobs.each_with_object({}) do |blob, content_types|
           header = blob.service.download_chunk(blob.key, 0...4.kilobytes)
-          content_types[blob.id] = Marcel::Magic.by_magic(StringIO.new(header))&.type || "application/octet-stream"
+          content_types[blob.id] = Marcel::MimeType.for(StringIO.new(header), name: nil, declared_type: nil).presence || "application/octet-stream"
         end
       end
 

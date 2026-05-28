@@ -155,20 +155,22 @@ module ClerkAuthenticatable
   def super_admin_user_for(identity)
     return nil unless super_admin_email?(identity[:email])
 
-    user = User.find_or_initialize_by(email: identity[:email])
-    conflicting_user = User.where.not(id: user.id).find_by(clerk_id: identity[:clerk_id])
-    conflicting_user&.destroy! if conflicting_user&.email.to_s.end_with?("@placeholder.local")
+    User.transaction do
+      user = User.find_or_initialize_by(email: identity[:email])
+      conflicting_user = User.where.not(id: user.id).find_by(clerk_id: identity[:clerk_id])
+      conflicting_user&.destroy! if conflicting_user&.email.to_s.end_with?("@placeholder.local")
 
-    user.assign_attributes(
-      clerk_id: user.clerk_id.presence || identity[:clerk_id],
-      role: "admin",
-      super_admin: true,
-      active: true,
-      invitation_status: "accepted",
-      accepted_at: user.accepted_at || Time.current
-    )
-    user.save! if user.new_record? || user.changed?
-    user
+      user.assign_attributes(
+        clerk_id: user.clerk_id.presence || identity[:clerk_id],
+        role: "admin",
+        super_admin: true,
+        active: true,
+        invitation_status: "accepted",
+        accepted_at: user.accepted_at || Time.current
+      )
+      user.save! if user.new_record? || user.changed?
+      user
+    end
   rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique => e
     Rails.logger.warn("Super admin sync failed for clerk_id=#{identity[:clerk_id]}: #{e.message}")
     User.find_by(clerk_id: identity[:clerk_id]) || User.find_by("LOWER(email) = ?", identity[:email])
