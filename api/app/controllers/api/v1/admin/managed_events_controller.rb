@@ -25,13 +25,16 @@ module Api
         end
 
         def create
-          event = Event.new(event_params)
-          if event.save
+          event = nil
+
+          Event.transaction do
+            event = Event.create!(event_params)
             event.event_memberships.create!(user: current_user, role: "admin", active: true, invited_by: current_user, invited_at: Time.current)
-            render json: { event: serialize_admin_event_summary(event) }, status: :created
-          else
-            render json: { error: event.errors.full_messages.to_sentence, errors: event.errors.full_messages }, status: :unprocessable_entity
           end
+
+          render json: { event: serialize_admin_event_summary(event) }, status: :created
+        rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique => e
+          render json: create_error_payload(e), status: :unprocessable_entity
         end
 
         def update
@@ -52,6 +55,14 @@ module Api
           @event = Event.find(params[:id])
         rescue ActiveRecord::RecordNotFound
           render json: { error: "Event not found" }, status: :not_found
+        end
+
+        def create_error_payload(error)
+          if error.respond_to?(:record) && error.record&.errors&.any?
+            { error: error.record.errors.full_messages.to_sentence, errors: error.record.errors.full_messages }
+          else
+            { error: "Event could not be created. Please try again." }
+          end
         end
 
         def visible_events

@@ -14,19 +14,28 @@ module Api
         end
 
         def create
-          user = find_or_build_user
-          membership = @event.event_memberships.find_or_initialize_by(user: user)
-          membership.assign_attributes(role: safe_role(membership_params[:role]), active: true, invited_by: current_user, invited_at: Time.current)
+          attempts = 0
 
-          EventMembership.transaction do
-            user.save! if user.new_record? || user.changed?
-            membership.save!
+          begin
+            user = find_or_build_user
+            membership = @event.event_memberships.find_or_initialize_by(user: user)
+            membership.assign_attributes(role: safe_role(membership_params[:role]), active: true, invited_by: current_user, invited_at: Time.current)
+
+            EventMembership.transaction do
+              user.save! if user.new_record? || user.changed?
+              membership.save!
+            end
+
+            invite_result = user.invitation_pending? ? create_clerk_invitation(user) : { success: true, email_sent: false }
+            render json: membership_response(membership.reload, invite_result), status: :created
+          rescue ActiveRecord::RecordNotUnique
+            attempts += 1
+            retry if attempts <= 1
+
+            render json: { error: "Event member could not be invited. Please try again." }, status: :unprocessable_entity
+          rescue ActiveRecord::RecordInvalid => e
+            render json: { error: e.record.errors.full_messages.to_sentence, errors: e.record.errors.full_messages }, status: :unprocessable_entity
           end
-
-          invite_result = user.invitation_pending? ? create_clerk_invitation(user) : { success: true, email_sent: false }
-          render json: membership_response(membership.reload, invite_result), status: :created
-        rescue ActiveRecord::RecordInvalid => e
-          render json: { error: e.record.errors.full_messages.to_sentence, errors: e.record.errors.full_messages }, status: :unprocessable_entity
         end
 
         def update
